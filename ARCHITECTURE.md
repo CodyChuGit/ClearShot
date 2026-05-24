@@ -7,6 +7,51 @@ The system is split into a **React/TypeScript Frontend** and a **FastAPI Python 
 
 ---
 
+## Getting Started: How to Rebuild & Run
+
+### Prerequisites
+1. **Node.js**: v18+ (for frontend)
+2. **Python**: 3.9+ (for backend)
+3. **FFmpeg**: Must be installed and available in the system `$PATH` (`brew install ffmpeg` on macOS, or `apt install ffmpeg` on Linux).
+
+### 1. Backend Setup
+The backend requires several pip packages including FastAPI, Uvicorn, ONNX Runtime, OpenCV, and pytubefix.
+
+```bash
+# Navigate to project root
+cd clear-shot
+
+# (Optional) Create and activate a virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the backend server
+python3 server.py
+# (Or use Uvicorn directly: uvicorn api.main:app --reload --port 8000)
+```
+
+### 2. Frontend Setup
+The frontend uses Vite, React 18, and TypeScript.
+
+```bash
+# Navigate to frontend directory
+cd clear-shot/frontend
+
+# Install node modules
+npm install
+
+# Start the development server
+npm run dev
+
+# To build for production:
+npm run build
+```
+
+---
+
 ## Technology Stack
 
 ### Frontend
@@ -24,6 +69,46 @@ The system is split into a **React/TypeScript Frontend** and a **FastAPI Python 
 - **YouTube Downloader:** `pytubefix` (for resolving and downloading streams)
 - **AI Inference Engine:** ONNX Runtime (`onnxruntime`) 
   - *Note:* Configured to utilize the `CoreMLExecutionProvider` for GPU acceleration on Apple Silicon (M1/M2/M3).
+
+---
+
+## Core Architecture Diagrams
+
+### System Interactions
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant FastAPI (Backend)
+    participant Worker (Background Thread)
+    participant FFmpeg
+    participant ONNX_Models
+    
+    User->>Frontend: Upload Video / Paste URL
+    Frontend->>FastAPI: POST /api/upload or POST /api/download-url
+    FastAPI-->>Frontend: Returns Job ID
+    Frontend->>FastAPI: Connects to ws://.../api/ws/{job_id}
+    FastAPI->>Worker: Starts async background thread
+    
+    rect rgb(30, 30, 40)
+        Note right of Worker: Extraction Pipeline
+        Worker->>FFmpeg: Extract frames (2 FPS)
+        loop Over each frame
+            Worker->>ONNX_Models: Run Face Detection (SCRFD)
+            Worker->>ONNX_Models: Run Body Detection (YOLOv8n-pose)
+            Worker->>Worker: Calculate Blur (Laplacian)
+            Worker->>Worker: Calculate Score & Deduplicate
+        end
+        Worker-->>FastAPI: Send progress updates via Queue
+    end
+    
+    FastAPI-->>Frontend: WebSocket events (progress, status)
+    Worker-->>FastAPI: Finishes processing
+    FastAPI-->>Frontend: WebSocket status = 'complete'
+    Frontend->>FastAPI: GET /api/results/{job_id}
+    FastAPI-->>Frontend: Returns top N high-quality frames
+    Frontend-->>User: Displays results
+```
 
 ---
 
@@ -64,6 +149,22 @@ The AI pipeline is designed to be fast and lightweight, prioritizing ONNX over h
 4. Frames without faces or bodies, or frames failing the blur threshold, are discarded.
 5. The remaining frames are ranked, and the top *N* frames are saved.
 6. The WebSocket receives the `complete` status, and the frontend fetches the final thumbnails via `/api/results/{job_id}`.
+
+---
+
+## REST & WebSocket APIs
+
+### REST Endpoints
+- `POST /api/upload`: Upload a local `.mp4`/`.mov` file. Returns `{ job_id }`.
+- `POST /api/download-url`: Request a YouTube download. Returns `{ job_id, videoMeta }`.
+- `GET /api/results/{job_id}`: Retrieves an array of objects representing the best extracted frames.
+- `Static Mount`: Automatically mounts `/data` to serve thumbnails and videos to the frontend.
+
+### WebSocket Events (`/api/ws/{job_id}`)
+Messages are sent as stringified JSON objects.
+- `{ type: "status", status: "downloading" | "extracting" | "complete" | "error" }`
+- `{ type: "progress", progress: 45, message: "Extracting frames 45/100" }`
+- `{ type: "error", error: "Download aborted by user" }`
 
 ---
 
