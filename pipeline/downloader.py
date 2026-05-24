@@ -67,8 +67,38 @@ def download_video(
     Returns:
         The absolute path to the downloaded video file.
     """
-            ydl_opts['format'] = 'best'
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info)
-        raise e
+    os.makedirs(output_dir, exist_ok=True)
+    
+    def on_progress(stream, chunk, bytes_remaining):
+        if progress_callback:
+            total_size = stream.filesize
+            if total_size > 0:
+                pct = (total_size - bytes_remaining) / total_size
+                progress_callback(pct, "Downloading video...")
+                
+    yt = YouTube(url, client='WEB', on_progress_callback=on_progress)
+    
+    # If a specific format_id was passed, use it, otherwise get the best video stream
+    if format_id and format_id != "bestvideo":
+        stream = yt.streams.get_by_itag(int(format_id))
+    else:
+        stream = yt.streams.filter(adaptive=True, type='video').order_by('resolution').desc().first()
+        if not stream:
+            stream = yt.streams.get_highest_resolution()
+            
+    if not stream:
+        raise ValueError("Could not find a valid stream to download.")
+        
+    if progress_callback:
+        progress_callback(0.0, "Starting download...")
+        
+    # Download the video
+    out_file = stream.download(
+        output_path=output_dir,
+        filename=f"{job_id}.mp4"
+    )
+    
+    if progress_callback:
+        progress_callback(1.0, "Download finished, finalizing file...")
+        
+    return out_file
