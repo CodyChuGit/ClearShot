@@ -245,11 +245,12 @@ button {
 .preview-thumbnail,
 .preview-video {
   width: 100%;
-  max-height: 200px;
-  border-radius: var(--radius-sm);
+  max-height: 320px;
+  border-radius: var(--radius-md);
   margin-bottom: var(--space-md);
   background: #000;
   display: block;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
 .preview-thumbnail {
@@ -395,9 +396,9 @@ button {
 .setting-slider {
   appearance: none;
   width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
+  height: 4px;
+  background: var(--border-subtle);
+  border-radius: 2px;
   outline: none;
 }
 
@@ -406,14 +407,17 @@ button {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
   cursor: pointer;
-  transition: transform 0.1s;
+  transition: all 0.2s;
+  border: 2px solid var(--bg-card);
 }
 
 .setting-slider::-webkit-slider-thumb:hover {
   transform: scale(1.2);
+  box-shadow: 0 0 12px var(--accent);
+  background: #4f46e5;
 }
 
 .setting-slider:disabled {
