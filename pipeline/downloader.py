@@ -92,12 +92,33 @@ def download_video(
     """
     os.makedirs(output_dir, exist_ok=True)
     
+    state = {
+        "start_time": time.time()
+    }
+    
     def on_progress(stream, chunk, bytes_remaining):
         if progress_callback:
             total_size = stream.filesize
             if total_size > 0:
-                pct = (total_size - bytes_remaining) / total_size
-                progress_callback(pct, "Downloading video...")
+                downloaded = total_size - bytes_remaining
+                pct = downloaded / total_size
+                
+                now = time.time()
+                elapsed = now - state["start_time"]
+                
+                if elapsed > 0:
+                    speed_bps = downloaded / elapsed
+                    speed_mbps = speed_bps / (1024 * 1024)
+                    
+                    eta_seconds = bytes_remaining / speed_bps if speed_bps > 0 else 0
+                    m, s = divmod(int(eta_seconds), 60)
+                    eta_str = f"{m:02d}:{s:02d}"
+                    
+                    msg = f"Downloading... {pct*100:.1f}% ({speed_mbps:.1f} MB/s, ETA: {eta_str})"
+                else:
+                    msg = f"Downloading... {pct*100:.1f}%"
+                    
+                progress_callback(pct, msg)
                 
     yt = YouTube(url, client='ANDROID_VR', on_progress_callback=on_progress)
     
