@@ -146,22 +146,24 @@ export function VideoUpload({ phase, jobId, videoMeta, onUpload, onUrlImport, on
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25 }}
           >
-            {showThumbnail && videoMeta?.thumbnail_url && (
-              <img 
-                src={videoMeta.thumbnail_url} 
-                alt="Video thumbnail preview" 
-                className="preview-thumbnail"
-              />
-            )}
-            
-            {showVideo && jobId && (
-              <video 
-                src={getVideoUrl(jobId)} 
-                controls 
-                className="preview-video"
-                preload="metadata"
-              />
-            )}
+            <div className="preview-container">
+              {showThumbnail && videoMeta?.thumbnail_url && (
+                <img 
+                  src={videoMeta.thumbnail_url} 
+                  alt="Video thumbnail preview" 
+                  className="preview-thumbnail"
+                />
+              )}
+              
+              {showVideo && jobId && (
+                <video 
+                  src={getVideoUrl(jobId)} 
+                  controls 
+                  className="preview-video"
+                  preload="metadata"
+                />
+              )}
+            </div>
             
             <div className="video-info__header">
               <Film size={18} />
