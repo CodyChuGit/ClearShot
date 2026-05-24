@@ -60,9 +60,13 @@ export async function getGpuInfo(): Promise<GpuInfo> {
   return res.json();
 }
 
-export function getDownloadUrl(jobId: string): string {
+export const getDownloadUrl = (jobId: string) => {
   return `${API_BASE}/jobs/${jobId}/download`;
-}
+};
+
+export const getVideoUrl = (jobId: string) => {
+  return `${API_BASE}/video/${jobId}`;
+};
 
 export function getWsUrl(jobId: string): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

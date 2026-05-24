@@ -5,6 +5,7 @@ export interface VideoMeta {
   height: number;
   frame_count: number;
   format_id?: string;
+  thumbnail_url?: string;
   is_url?: boolean;
   available_formats?: Array<{
     format_id: string;

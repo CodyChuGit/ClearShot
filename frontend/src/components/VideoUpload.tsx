@@ -3,16 +3,18 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Upload, Film, X, Link as LinkIcon, ArrowRight } from 'lucide-react';
 import type { VideoMeta } from '../types';
 import type { ExtractionPhase } from '../hooks/useExtraction';
+import { getVideoUrl } from '../services/api';
 
 interface Props {
   phase: ExtractionPhase;
+  jobId: string | null;
   videoMeta: VideoMeta | null;
   onUpload: (file: File) => void;
   onUrlImport: (url: string) => void;
   onReset: () => void;
 }
 
-export function VideoUpload({ phase, videoMeta, onUpload, onUrlImport, onReset }: Props) {
+export function VideoUpload({ phase, jobId, videoMeta, onUpload, onUrlImport, onReset }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const [url, setUrl] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +51,9 @@ export function VideoUpload({ phase, videoMeta, onUpload, onUrlImport, onReset }
     const sec = Math.floor(s % 60);
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
+
+  const showThumbnail = videoMeta?.is_url && (phase === 'ready' || phase === 'downloading');
+  const showVideo = jobId && (!videoMeta?.is_url || phase === 'downloaded' || phase === 'extracting' || phase === 'complete');
 
   return (
     <div className="upload-section">
@@ -141,6 +146,23 @@ export function VideoUpload({ phase, videoMeta, onUpload, onUrlImport, onReset }
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25 }}
           >
+            {showThumbnail && videoMeta?.thumbnail_url && (
+              <img 
+                src={videoMeta.thumbnail_url} 
+                alt="Video thumbnail preview" 
+                className="preview-thumbnail"
+              />
+            )}
+            
+            {showVideo && jobId && (
+              <video 
+                src={getVideoUrl(jobId)} 
+                controls 
+                className="preview-video"
+                preload="metadata"
+              />
+            )}
+            
             <div className="video-info__header">
               <Film size={18} />
               <span className="video-info__label">Video loaded</span>

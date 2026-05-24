@@ -59,6 +59,7 @@ function App() {
           <aside className="panel panel--left">
             <VideoUpload
               phase={phase}
+              jobId={jobId}
               videoMeta={videoMeta}
               onUpload={upload}
               onUrlImport={importUrl}

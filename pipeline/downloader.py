@@ -60,6 +60,9 @@ def probe_url(url: str) -> dict:
     # Sort formats from highest to lowest
     sorted_formats = [fmt for _, fmt in sorted(available_formats.items(), key=lambda x: x[0], reverse=True)]
     
+    # Try to extract the thumbnail URL
+    thumbnail_url = yt.thumbnail_url if hasattr(yt, 'thumbnail_url') else None
+    
     return {
         "fps": fps,
         "duration": duration,
@@ -67,7 +70,8 @@ def probe_url(url: str) -> dict:
         "height": height,
         "frame_count": int(fps * duration) if fps and duration else 0,
         "format_id": str(best_stream.itag),
-        "available_formats": sorted_formats
+        "available_formats": sorted_formats,
+        "thumbnail_url": thumbnail_url
     }
 
 def download_video(

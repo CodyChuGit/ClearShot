@@ -50,6 +50,16 @@ async def serve_result(job_id: str, filename: str):
         return {"error": "File not found"}, 404
     return FileResponse(file_path)
 
+from api.routes import JOBS
+
+@app.get("/api/video/{job_id}")
+async def serve_video(job_id: str):
+    """Serve the downloaded video file for scrubbing/preview."""
+    job = JOBS.get(job_id)
+    if not job or not job.get("video_path") or not os.path.exists(job["video_path"]):
+        return {"error": "Video not found"}, 404
+    return FileResponse(job["video_path"])
+
 
 # ---------------------------------------------------------------------------
 # Serve React frontend (production build)
