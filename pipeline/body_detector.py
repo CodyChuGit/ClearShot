@@ -15,7 +15,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from pipeline.gpu import create_session, detect_gpu
+from pipeline.gpu import create_cpu_session, create_session
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ MODEL_DIR = os.path.join(str(Path.home()), ".clearshot", "models")
 
 BODY_MODELS = {
     "yolov8n-pose": {
-        "url": "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n-pose.onnx",
+        "url": "https://huggingface.co/Xenova/yolov8n-pose/resolve/main/onnx/model.onnx",
         "filename": "yolov8n-pose.onnx",
         "input_size": (640, 640),
     },
@@ -83,14 +83,14 @@ class BodyDetector:
         self.model_config = BODY_MODELS[model_name]
         self.input_size = self.model_config["input_size"]
 
-        model_path = self._ensure_model()
-        self.session = create_session(model_path)
+        self.model_path = self._ensure_model()
+        self.session = create_session(self.model_path)
 
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [o.name for o in self.session.get_outputs()]
 
-        gpu_info = detect_gpu()
-        self.backend = gpu_info["backend"]
+        active_provider = self.session.get_providers()[0]
+        self.backend = _provider_backend(active_provider)
 
     def detect(
         self,
@@ -115,7 +115,7 @@ class BodyDetector:
         blob, ratio, (pad_w, pad_h) = self._preprocess(frame)
 
         # Inference
-        outputs = self.session.run(self.output_names, {self.input_name: blob})
+        outputs = self._run(blob)
 
         # Post-process
         bodies = self._postprocess(
@@ -128,6 +128,20 @@ class BodyDetector:
     def close(self):
         """Release ONNX session."""
         del self.session
+
+    def _run(self, blob: np.ndarray) -> list[np.ndarray]:
+        try:
+            return self.session.run(self.output_names, {self.input_name: blob})
+        except Exception as exc:
+            if self.backend == "cpu":
+                raise
+
+            print(f"[ClearShot] Body detector GPU inference failed ({exc}); retrying on CPU")
+            self.session = create_cpu_session(self.model_path)
+            self.input_name = self.session.get_inputs()[0].name
+            self.output_names = [o.name for o in self.session.get_outputs()]
+            self.backend = "cpu"
+            return self.session.run(self.output_names, {self.input_name: blob})
 
     # -----------------------------------------------------------------------
     # Internal
@@ -286,3 +300,11 @@ class BodyDetector:
                 ))
 
         return results
+
+
+def _provider_backend(provider: str) -> str:
+    if provider == "CUDAExecutionProvider":
+        return "cuda"
+    if provider == "CoreMLExecutionProvider":
+        return "coreml"
+    return "cpu"

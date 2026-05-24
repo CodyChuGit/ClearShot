@@ -15,7 +15,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from pipeline.gpu import create_session, detect_gpu
+from pipeline.gpu import create_cpu_session, create_session, detect_gpu
 
 
 # ---------------------------------------------------------------------------
@@ -77,16 +77,17 @@ class FaceDetector:
         self.model_config = MODELS[model_name]
         self.input_size = self.model_config["input_size"]
 
-        model_path = self._ensure_model()
-        self.session = create_session(model_path)
+        self.model_path = self._ensure_model()
+        self.session = create_session(self.model_path)
 
         # Get input/output info
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [o.name for o in self.session.get_outputs()]
 
         gpu_info = detect_gpu()
-        self.backend = gpu_info["backend"]
-        self.device = gpu_info["device"]
+        active_provider = self.session.get_providers()[0]
+        self.backend = _provider_backend(active_provider)
+        self.device = gpu_info["device"] if self.backend != "cpu" else "CPU"
 
     def detect(
         self,
@@ -108,19 +109,43 @@ class FaceDetector:
         fh, fw = frame.shape[:2]
 
         # Preprocess
-        blob = self._preprocess(frame)
+        blob, ratio, (pad_w, pad_h) = self._preprocess(frame)
 
         # Inference
-        outputs = self.session.run(self.output_names, {self.input_name: blob})
+        outputs = self._run(blob)
 
         # Post-process
-        faces = self._postprocess(outputs, fw, fh, confidence, nms_threshold)
+        faces = self._postprocess(
+            outputs,
+            fw,
+            fh,
+            confidence,
+            nms_threshold,
+            ratio,
+            pad_w,
+            pad_h,
+        )
 
         return faces
 
     def close(self):
         """Release ONNX session resources."""
         del self.session
+
+    def _run(self, blob: np.ndarray) -> list[np.ndarray]:
+        try:
+            return self.session.run(self.output_names, {self.input_name: blob})
+        except Exception as exc:
+            if self.backend == "cpu":
+                raise
+
+            print(f"[ClearShot] Face detector GPU inference failed ({exc}); retrying on CPU")
+            self.session = create_cpu_session(self.model_path)
+            self.input_name = self.session.get_inputs()[0].name
+            self.output_names = [o.name for o in self.session.get_outputs()]
+            self.backend = "cpu"
+            self.device = "CPU"
+            return self.session.run(self.output_names, {self.input_name: blob})
 
     # -----------------------------------------------------------------------
     # Internal methods
@@ -145,10 +170,34 @@ class FaceDetector:
 
         return model_path
 
-    def _preprocess(self, frame: np.ndarray) -> np.ndarray:
-        """Resize, normalize, and convert to NCHW format."""
+    def _preprocess(self, frame: np.ndarray) -> tuple[np.ndarray, float, tuple[float, float]]:
+        """Letterbox resize, normalize, and convert to NCHW format."""
         iw, ih = self.input_size
-        img = cv2.resize(frame, (iw, ih))
+        fh, fw = frame.shape[:2]
+
+        ratio = min(iw / fw, ih / fh)
+        new_w = max(1, int(fw * ratio))
+        new_h = max(1, int(fh * ratio))
+
+        resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+        pad_w = (iw - new_w) / 2.0
+        pad_h = (ih - new_h) / 2.0
+
+        top = int(round(pad_h - 0.1))
+        bottom = int(round(pad_h + 0.1))
+        left = int(round(pad_w - 0.1))
+        right = int(round(pad_w + 0.1))
+
+        img = cv2.copyMakeBorder(
+            resized,
+            top,
+            bottom,
+            left,
+            right,
+            cv2.BORDER_CONSTANT,
+            value=(0, 0, 0),
+        )
         img = img.astype(np.float32)
 
         # Normalize (standard ImageNet-style)
@@ -158,7 +207,7 @@ class FaceDetector:
         img = img.transpose(2, 0, 1)
         img = np.expand_dims(img, axis=0)
 
-        return img
+        return img, ratio, (pad_w, pad_h)
 
     def _postprocess(
         self,
@@ -167,6 +216,9 @@ class FaceDetector:
         orig_h: int,
         confidence: float,
         nms_threshold: float,
+        ratio: float,
+        pad_w: float,
+        pad_h: float,
     ) -> list[FaceDetection]:
         """
         Decode SCRFD outputs into face detections.
@@ -177,8 +229,6 @@ class FaceDetector:
         - Optional keypoint regressions
         """
         iw, ih = self.input_size
-        scale_w = orig_w / iw
-        scale_h = orig_h / ih
 
         all_boxes = []
         all_scores = []
@@ -209,7 +259,13 @@ class FaceDetector:
             return []
 
         for scores_raw, bboxes_raw, stride in stride_outputs:
-            scores = scores_raw.flatten()
+            scores = scores_raw.reshape(-1)
+            bboxes = bboxes_raw.reshape(-1, 4)
+
+            if bboxes.shape[0] != scores.shape[0]:
+                count = min(bboxes.shape[0], scores.shape[0])
+                scores = scores[:count]
+                bboxes = bboxes[:count]
 
             # Filter by confidence
             mask = scores > confidence
@@ -222,26 +278,29 @@ class FaceDetector:
             # Grid dimensions for this stride level
             grid_h = ih // stride
             grid_w = iw // stride
+            grid_cells = grid_h * grid_w
+            anchor_count = max(1, len(scores) // grid_cells) if grid_cells else 1
 
             for idx, score in zip(filtered_indices, filtered_scores):
                 # Grid position
-                row = idx // grid_w
-                col = idx % grid_w
+                spatial_idx = int(idx) // anchor_count
+                if spatial_idx >= grid_cells:
+                    continue
+
+                row = spatial_idx // grid_w
+                col = spatial_idx % grid_w
 
                 # Anchor center
                 cx = (col + 0.5) * stride
                 cy = (row + 0.5) * stride
 
                 # Decode bbox (distance from anchor: left, top, right, bottom)
-                if len(bboxes_raw.shape) == 3:
-                    bbox = bboxes_raw[0, idx, :]
-                else:
-                    bbox = bboxes_raw.reshape(-1, 4)[idx, :]
+                bbox = bboxes[idx, :]
 
-                x1 = (cx - bbox[0] * stride) * scale_w
-                y1 = (cy - bbox[1] * stride) * scale_h
-                x2 = (cx + bbox[2] * stride) * scale_w
-                y2 = (cy + bbox[3] * stride) * scale_h
+                x1 = (cx - bbox[0] * stride - pad_w) / ratio
+                y1 = (cy - bbox[1] * stride - pad_h) / ratio
+                x2 = (cx + bbox[2] * stride - pad_w) / ratio
+                y2 = (cy + bbox[3] * stride - pad_h) / ratio
 
                 # Clamp to image bounds
                 x1 = max(0, int(x1))
@@ -280,3 +339,11 @@ class FaceDetector:
                 ))
 
         return results
+
+
+def _provider_backend(provider: str) -> str:
+    if provider == "CUDAExecutionProvider":
+        return "cuda"
+    if provider == "CoreMLExecutionProvider":
+        return "coreml"
+    return "cpu"
