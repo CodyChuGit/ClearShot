@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Download, RotateCcw } from 'lucide-react';
+import { Play, Download, RotateCcw, XCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Header } from './components/Header';
 import { VideoUpload } from './components/VideoUpload';
@@ -25,6 +25,7 @@ function App() {
     upload,
     importUrl,
     startDownload,
+    abortDownload,
     extract,
     updateSettings,
     reset,
@@ -144,19 +145,26 @@ function App() {
                 )}
                 
                 <div className="action-bar" style={{ marginTop: '1.5rem' }}>
-                  <button
-                    className="btn btn--primary btn--lg"
-                    style={{ width: '100%' }}
-                    onClick={() => startDownload(selectedFormatId || videoMeta?.format_id)}
-                    disabled={isWorking || !jobId}
-                  >
-                    {isWorking ? (
-                      <span className="upload-spinner" style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff' }} />
-                    ) : (
+                  {isDownloading ? (
+                    <button
+                      className="btn btn--danger btn--lg"
+                      style={{ width: '100%', background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.5)' }}
+                      onClick={abortDownload}
+                    >
+                      <XCircle size={20} />
+                      <span>Cancel Download</span>
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn--primary btn--lg"
+                      style={{ width: '100%' }}
+                      onClick={() => startDownload(selectedFormatId || videoMeta?.format_id)}
+                      disabled={isWorking || !jobId}
+                    >
                       <Download size={20} />
-                    )}
-                    <span>{isWorking ? 'Downloading...' : 'Download Video'}</span>
-                  </button>
+                      <span>Download Video</span>
+                    </button>
+                  )}
                 </div>
               </motion.div>
             )}

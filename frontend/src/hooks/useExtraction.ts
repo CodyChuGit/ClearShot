@@ -58,6 +58,13 @@ export function useExtraction() {
         results: msg.results,
         wsUrl: null,
       }));
+    } else if (msg.type === 'download_aborted') {
+      setState((s) => ({
+        ...s,
+        phase: 'ready',
+        progress: 0,
+        stage: 'Download aborted',
+      }));
     } else if (msg.type === 'error') {
       setState((s) => ({
         ...s,
@@ -132,6 +139,11 @@ export function useExtraction() {
     send({ action: 'download', format_id: formatId });
   }, [state.jobId, send]);
 
+  const abortDownload = useCallback(() => {
+    if (!state.jobId) return;
+    send({ action: 'abort' });
+  }, [state.jobId, send]);
+
   const extract = useCallback(async () => {
     if (!state.jobId) return;
 
@@ -175,6 +187,7 @@ export function useExtraction() {
     upload,
     importUrl,
     startDownload,
+    abortDownload,
     extract,
     updateSettings,
     reset,

@@ -67,12 +67,14 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
     def run_download():
         try:
             from pipeline.downloader import download_video
+            job["abort"] = False
             job["video_path"] = download_video(
                 url=job["url"],
                 output_dir=job["output_dir"],
                 job_id=job["id"],
                 progress_callback=dl_progress,
-                format_id=job.get("meta", {}).get("format_id", "bestvideo")
+                format_id=job.get("meta", {}).get("format_id", "bestvideo"),
+                should_abort=lambda: job.get("abort", False)
             )
             loop.call_soon_threadsafe(progress_queue.put_nowait, {
                 "type": "download_complete",
@@ -80,11 +82,18 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
             })
             job["status"] = "downloaded"
         except Exception as e:
-            loop.call_soon_threadsafe(progress_queue.put_nowait, {
-                "type": "error",
-                "error": str(e)
-            })
-            job["status"] = "error"
+            if str(e) == "Download aborted by user":
+                job["status"] = "ready"
+                # Optionally clean up partial file here
+                loop.call_soon_threadsafe(progress_queue.put_nowait, {
+                    "type": "download_aborted"
+                })
+            else:
+                job["status"] = "error"
+                loop.call_soon_threadsafe(progress_queue.put_nowait, {
+                    "type": "error",
+                    "error": str(e)
+                })
 
     def run_extract(settings: dict):
         try:
@@ -147,19 +156,17 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
                 fmt_id = data.get("format_id") or job.get("meta", {}).get("format_id", "bestvideo")
                 
                 # We need to pass the custom format_id to run_download
-                async def run_dl_with_format():
-                    # Modify run_download to accept format_id or just set it in job meta temporarily
-                    job["meta"]["format_id"] = fmt_id
-                    await asyncio.to_thread(run_download)
-                
-                await run_dl_with_format()
+                job["meta"]["format_id"] = fmt_id
+                asyncio.create_task(asyncio.to_thread(run_download))
             
+            elif action == "abort":
+                job["abort"] = True
+                
             elif action == "extract":
                 job["status"] = "running"
                 settings_dict = data.get("settings", {})
                 job["settings"] = settings_dict
-                await asyncio.to_thread(run_extract, settings_dict)
-                break
+                asyncio.create_task(asyncio.to_thread(run_extract, settings_dict))
                 
     except WebSocketDisconnect:
         pass

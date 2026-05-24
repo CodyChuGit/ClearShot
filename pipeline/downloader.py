@@ -83,7 +83,8 @@ def download_video(
     output_dir: str,
     job_id: str,
     progress_callback: Callable[[float, str], None] | None = None,
-    format_id: str = "bestvideo"
+    format_id: str = "bestvideo",
+    should_abort: Callable[[], bool] | None = None
 ) -> str:
     """
     Download a video from a URL using pytubefix.
@@ -94,6 +95,7 @@ def download_video(
         job_id: Job identifier for naming.
         progress_callback: Callback for download progress.
         format_id: Target itag extracted during analysis.
+        should_abort: Callback to check if download should be aborted.
 
     Returns:
         The absolute path to the downloaded video file.
@@ -105,6 +107,9 @@ def download_video(
     }
     
     def on_progress(stream, chunk, bytes_remaining):
+        if should_abort and should_abort():
+            raise Exception("Download aborted by user")
+            
         if progress_callback:
             total_size = stream.filesize
             if total_size > 0:

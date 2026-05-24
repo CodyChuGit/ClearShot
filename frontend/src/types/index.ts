@@ -66,7 +66,11 @@ export interface DownloadCompleteMessage {
   video_path: string;
 }
 
-export type WsMessage = ProgressMessage | CompleteMessage | ErrorMessage | DownloadCompleteMessage;
+export interface DownloadAbortedMessage {
+  type: 'download_aborted';
+}
+
+export type WsMessage = ProgressMessage | CompleteMessage | ErrorMessage | DownloadCompleteMessage | DownloadAbortedMessage;
 
 export interface GpuInfo {
   backend: 'cuda' | 'coreml' | 'cpu';
