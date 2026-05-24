@@ -146,7 +146,14 @@ export function VideoUpload({ phase, jobId, videoMeta, onUpload, onUrlImport, on
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25 }}
           >
-            <div className="preview-container">
+            <div 
+              className="preview-container" 
+              style={{ 
+                aspectRatio: videoMeta?.width && videoMeta?.height 
+                  ? `${videoMeta.width} / ${videoMeta.height}` 
+                  : '16 / 9' 
+              }}
+            >
               {showThumbnail && videoMeta?.thumbnail_url && (
                 <img 
                   src={videoMeta.thumbnail_url} 

@@ -245,6 +245,7 @@ button {
 .preview-container {
   width: 100%;
   aspect-ratio: 16 / 9;
+  max-height: 70vh;
   border-radius: var(--radius-md);
   margin-bottom: var(--space-md);
   background: #000;
