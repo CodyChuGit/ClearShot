@@ -4,7 +4,14 @@ export interface VideoMeta {
   width: number;
   height: number;
   frame_count: number;
+  format_id?: string;
   is_url?: boolean;
+  available_formats?: Array<{
+    format_id: string;
+    resolution: string;
+    width: number;
+    height: number;
+  }>;
 }
 
 export interface UploadResponse {

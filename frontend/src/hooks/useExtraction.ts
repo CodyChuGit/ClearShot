@@ -120,7 +120,7 @@ export function useExtraction() {
     }
   }, []);
 
-  const startDownload = useCallback(() => {
+  const startDownload = useCallback((formatId?: string) => {
     if (!state.jobId) return;
     setState((s) => ({
       ...s,
@@ -129,7 +129,7 @@ export function useExtraction() {
       stage: 'starting download',
       error: null,
     }));
-    send({ action: 'download' });
+    send({ action: 'download', format_id: formatId });
   }, [state.jobId, send]);
 
   const extract = useCallback(async () => {

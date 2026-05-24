@@ -15,11 +15,22 @@ def probe_url(url: str) -> dict:
     # Sort by height to find the maximum resolution
     best_stream = None
     max_height = 0
+    available_formats = {}
     
     for s in video_streams:
         # resolution is typically something like "1080p", "2160p"
         if hasattr(s, 'resolution') and s.resolution:
             h = int(s.resolution.replace('p', ''))
+            
+            # Deduplicate by height, keeping the first (often best codec) we see
+            if h not in available_formats:
+                available_formats[h] = {
+                    "format_id": str(s.itag),
+                    "resolution": s.resolution,
+                    "height": h,
+                    "width": int(h * 16 / 9)
+                }
+                
             if h > max_height:
                 max_height = h
                 best_stream = s
@@ -27,6 +38,14 @@ def probe_url(url: str) -> dict:
     if not best_stream:
         # Fallback to progressive if no adaptive streams are found
         best_stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
+        if best_stream and hasattr(best_stream, 'resolution') and best_stream.resolution:
+            h = int(best_stream.resolution.replace('p', ''))
+            available_formats[h] = {
+                "format_id": str(best_stream.itag),
+                "resolution": best_stream.resolution,
+                "height": h,
+                "width": int(h * 16 / 9)
+            }
         
     if not best_stream:
         raise ValueError("Could not find any video streams for this URL.")
@@ -38,13 +57,17 @@ def probe_url(url: str) -> dict:
     height = max_height if max_height > 0 else int(best_stream.resolution.replace('p', '')) if best_stream.resolution else 0
     width = int(height * 16 / 9) if height else 0
     
+    # Sort formats from highest to lowest
+    sorted_formats = [fmt for _, fmt in sorted(available_formats.items(), key=lambda x: x[0], reverse=True)]
+    
     return {
         "fps": fps,
         "duration": duration,
         "width": width,
         "height": height,
         "frame_count": int(fps * duration) if fps and duration else 0,
-        "format_id": str(best_stream.itag)
+        "format_id": str(best_stream.itag),
+        "available_formats": sorted_formats
     }
 
 def download_video(

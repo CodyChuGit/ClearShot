@@ -144,7 +144,15 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
             
             if action == "download":
                 job["status"] = "downloading"
-                await asyncio.to_thread(run_download)
+                fmt_id = data.get("format_id") or job.get("meta", {}).get("format_id", "bestvideo")
+                
+                # We need to pass the custom format_id to run_download
+                async def run_dl_with_format():
+                    # Modify run_download to accept format_id or just set it in job meta temporarily
+                    job["meta"]["format_id"] = fmt_id
+                    await asyncio.to_thread(run_download)
+                
+                await run_dl_with_format()
             
             elif action == "extract":
                 job["status"] = "running"

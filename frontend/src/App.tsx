@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Play, Download, RotateCcw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Header } from './components/Header';
@@ -28,6 +29,14 @@ function App() {
     updateSettings,
     reset,
   } = useExtraction();
+
+  const [selectedFormatId, setSelectedFormatId] = useState<string>('');
+
+  useEffect(() => {
+    if (videoMeta?.format_id) {
+      setSelectedFormatId(videoMeta.format_id);
+    }
+  }, [videoMeta?.format_id]);
 
   const isExtracting = phase === 'extracting';
   const isDownloading = phase === 'downloading';
@@ -112,11 +121,32 @@ function App() {
                 animate={{ opacity: 1, y: 0 }}
                 className="settings-wrapper"
               >
-                <div className="action-bar">
+                {videoMeta?.available_formats && videoMeta.available_formats.length > 0 && (
+                  <div className="settings-group">
+                    <label className="settings-label">
+                      Video Quality
+                      <span className="settings-tooltip" title="Select download resolution">ⓘ</span>
+                    </label>
+                    <select 
+                      className="settings-select"
+                      value={selectedFormatId}
+                      onChange={(e) => setSelectedFormatId(e.target.value)}
+                      disabled={isWorking}
+                    >
+                      {videoMeta.available_formats.map(fmt => (
+                        <option key={fmt.format_id} value={fmt.format_id}>
+                          {fmt.resolution} ({fmt.width}x{fmt.height})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                
+                <div className="action-bar" style={{ marginTop: '1.5rem' }}>
                   <button
                     className="btn btn--primary btn--lg"
                     style={{ width: '100%' }}
-                    onClick={startDownload}
+                    onClick={() => startDownload(selectedFormatId || videoMeta?.format_id)}
                     disabled={isWorking || !jobId}
                   >
                     {isWorking ? (
