@@ -245,7 +245,8 @@ button {
 .preview-thumbnail,
 .preview-video {
   width: 100%;
-  max-height: 320px;
+  aspect-ratio: 16 / 9;
+  height: auto;
   border-radius: var(--radius-md);
   margin-bottom: var(--space-md);
   background: #000;
@@ -259,6 +260,12 @@ button {
 
 .preview-video {
   object-fit: contain;
+}
+
+.preview-video::-webkit-media-controls-panel,
+.preview-video::-webkit-media-controls-enclosure {
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 .video-info__header {
