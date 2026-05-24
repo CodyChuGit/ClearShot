@@ -7,7 +7,7 @@ from pytubefix import YouTube
 
 def probe_url(url: str) -> dict:
     """Fetch video metadata from URL without downloading and find the best format using pytubefix."""
-    yt = YouTube(url, client='WEB')
+    yt = YouTube(url, client='ANDROID_VR')
     
     # Filter for adaptive video streams (video-only) and order by resolution
     video_streams = yt.streams.filter(adaptive=True, type='video')
@@ -99,7 +99,7 @@ def download_video(
                 pct = (total_size - bytes_remaining) / total_size
                 progress_callback(pct, "Downloading video...")
                 
-    yt = YouTube(url, client='WEB', on_progress_callback=on_progress)
+    yt = YouTube(url, client='ANDROID_VR', on_progress_callback=on_progress)
     
     # If a specific format_id was passed, use it, otherwise get the best video stream
     if format_id and format_id != "bestvideo":
