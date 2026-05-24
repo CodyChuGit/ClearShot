@@ -83,11 +83,12 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
             job["status"] = "downloaded"
         except Exception as e:
             if str(e) == "Download aborted by user":
-                job["status"] = "ready"
-                # Optionally clean up partial file here
-                loop.call_soon_threadsafe(progress_queue.put_nowait, {
-                    "type": "download_aborted"
-                })
+                # Only reset state if a new download hasn't already started
+                if job.get("abort", False):
+                    job["status"] = "ready"
+                    loop.call_soon_threadsafe(progress_queue.put_nowait, {
+                        "type": "download_aborted"
+                    })
             else:
                 job["status"] = "error"
                 loop.call_soon_threadsafe(progress_queue.put_nowait, {
@@ -169,14 +170,16 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
                 asyncio.create_task(asyncio.to_thread(run_extract, settings_dict))
                 
     except WebSocketDisconnect:
-        pass
+        job["abort"] = True
     except Exception as e:
+        job["abort"] = True
         job["status"] = "error"
         try:
             await websocket.send_json({"type": "error", "error": str(e)})
         except:
             pass
     finally:
+        job["abort"] = True
         await progress_queue.put(None)
         await consumer_task
         try:

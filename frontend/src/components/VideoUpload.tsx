@@ -166,7 +166,7 @@ export function VideoUpload({ phase, jobId, videoMeta, onUpload, onUrlImport, on
             <div className="video-info__header">
               <Film size={18} />
               <span className="video-info__label">Video loaded</span>
-              {phase === 'ready' && (
+              {phase !== 'downloading' && phase !== 'extracting' && (
                 <button className="video-info__reset" onClick={onReset} title="Remove video">
                   <X size={14} />
                 </button>

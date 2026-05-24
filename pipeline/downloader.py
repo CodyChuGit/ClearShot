@@ -107,9 +107,6 @@ def download_video(
     }
     
     def on_progress(stream, chunk, bytes_remaining):
-        if should_abort and should_abort():
-            raise Exception("Download aborted by user")
-            
         if progress_callback:
             total_size = stream.filesize
             if total_size > 0:
@@ -149,11 +146,15 @@ def download_video(
     if progress_callback:
         progress_callback(0.0, "Starting download...")
         
-    # Download the video
+    # Download the video using interrupt_checker for clean aborts
     out_file = stream.download(
         output_path=output_dir,
-        filename=f"{job_id}.mp4"
+        filename=f"{job_id}.mp4",
+        interrupt_checker=should_abort
     )
+    
+    if should_abort and should_abort():
+        raise Exception("Download aborted by user")
     
     if progress_callback:
         progress_callback(1.0, "Download finished, finalizing file...")
