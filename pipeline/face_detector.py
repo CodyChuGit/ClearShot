@@ -26,17 +26,17 @@ MODEL_DIR = os.path.join(str(Path.home()), ".clearshot", "models")
 
 MODELS = {
     "scrfd_500m": {
-        "url": "https://github.com/deepinsight/insightface/raw/master/python-package/insightface/data/objects/scrfd_500m_bnkps_shape640x640.onnx",
+        "url": "https://huggingface.co/hsuyabc/scrfd_2.5g_bnkps.onnx/resolve/main/scrfd_2.5g_bnkps.onnx", # Fallback to 2.5g
         "filename": "scrfd_500m.onnx",
         "input_size": (640, 640),
     },
     "scrfd_2.5g": {
-        "url": "https://github.com/deepinsight/insightface/raw/master/python-package/insightface/data/objects/scrfd_2.5g_bnkps_shape640x640.onnx",
+        "url": "https://huggingface.co/hsuyabc/scrfd_2.5g_bnkps.onnx/resolve/main/scrfd_2.5g_bnkps.onnx",
         "filename": "scrfd_2.5g.onnx",
         "input_size": (640, 640),
     },
     "scrfd_10g": {
-        "url": "https://github.com/deepinsight/insightface/raw/master/python-package/insightface/data/objects/scrfd_10g_bnkps_shape640x640.onnx",
+        "url": "https://huggingface.co/hsuyabc/scrfd_2.5g_bnkps.onnx/resolve/main/scrfd_2.5g_bnkps.onnx", # Fallback to 2.5g
         "filename": "scrfd_10g.onnx",
         "input_size": (640, 640),
     },
@@ -191,18 +191,18 @@ class FaceDetector:
 
         # Determine if model includes keypoints
         if num_outputs >= 9:
-            # With keypoints: groups of 3 (score, bbox, kps)
+            # Outputs: 0,1,2 (scores), 3,4,5 (bboxes), 6,7,8 (keypoints)
             stride_outputs = [
-                (outputs[0], outputs[1], 8),
-                (outputs[3], outputs[4], 16),
-                (outputs[6], outputs[7], 32),
+                (outputs[0], outputs[3], 8),
+                (outputs[1], outputs[4], 16),
+                (outputs[2], outputs[5], 32),
             ]
         elif num_outputs >= 6:
-            # Without keypoints: groups of 2 (score, bbox)
+            # Outputs: 0,1,2 (scores), 3,4,5 (bboxes)
             stride_outputs = [
-                (outputs[0], outputs[1], 8),
-                (outputs[2], outputs[3], 16),
-                (outputs[4], outputs[5], 32),
+                (outputs[0], outputs[3], 8),
+                (outputs[1], outputs[4], 16),
+                (outputs[2], outputs[5], 32),
             ]
         else:
             # Fallback: try to parse whatever we get
