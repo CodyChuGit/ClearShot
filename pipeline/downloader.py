@@ -4,6 +4,10 @@ import os
 import time
 from typing import Callable
 from pytubefix import YouTube
+import pytubefix.request
+
+# Reduce download chunk size from 9MB to 1MB for much smoother UI progress updates
+pytubefix.request.default_range_size = 1048576
 
 def probe_url(url: str) -> dict:
     """Fetch video metadata from URL without downloading and find the best format using pytubefix."""
