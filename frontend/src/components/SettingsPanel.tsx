@@ -115,7 +115,7 @@ export function SettingsPanel({ settings, onChange, disabled }: Props) {
       <div className="setting-group">
         <label className="setting-label">Output Size</label>
         <div className="segmented-control segmented-control--quad">
-          {[256, 512, 768, 1024].map((size) => (
+          {[256, 512, 768, 1024, 1280, 1536, 1920].map((size) => (
             <button
               key={size}
               className={`segment ${settings.output_size === size ? 'segment--active' : ''}`}
