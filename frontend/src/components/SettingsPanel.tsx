@@ -4,9 +4,15 @@ interface Props {
   settings: ExtractionSettings;
   onChange: (update: Partial<ExtractionSettings>) => void;
   disabled?: boolean;
+  maxTargetFps?: number;
 }
 
-export function SettingsPanel({ settings, onChange, disabled }: Props) {
+const MAX_SHARPNESS = 250;
+
+export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15 }: Props) {
+  const targetFpsMax = Math.max(0.5, maxTargetFps);
+  const targetFpsValue = Math.min(settings.target_fps, targetFpsMax);
+
   return (
     <div className="settings">
       <h2 className="settings__title">Settings</h2>
@@ -19,13 +25,13 @@ export function SettingsPanel({ settings, onChange, disabled }: Props) {
         <input
           type="range"
           className="setting-slider"
-          min={0.5} max={15} step={0.5}
-          value={settings.target_fps}
+          min={0.5} max={targetFpsMax} step={0.5}
+          value={targetFpsValue}
           onChange={(e) => onChange({ target_fps: Number(e.target.value) })}
           disabled={disabled}
         />
         <div className="setting-range-labels">
-          <span>0.5</span><span>15</span>
+          <span>0.5</span><span>{targetFpsMax.toFixed(targetFpsMax % 1 === 0 ? 0 : 2)}</span>
         </div>
       </div>
 
@@ -37,8 +43,8 @@ export function SettingsPanel({ settings, onChange, disabled }: Props) {
         <input
           type="range"
           className="setting-slider"
-          min={20} max={500} step={10}
-          value={settings.blur_threshold}
+          min={20} max={MAX_SHARPNESS} step={10}
+          value={Math.min(settings.blur_threshold, MAX_SHARPNESS)}
           onChange={(e) => onChange({ blur_threshold: Number(e.target.value) })}
           disabled={disabled}
         />
@@ -86,11 +92,14 @@ export function SettingsPanel({ settings, onChange, disabled }: Props) {
         <input
           type="range"
           className="setting-slider"
-          min={0} max={80} step={5}
+          min={0} max={200} step={5}
           value={settings.padding_pct}
           onChange={(e) => onChange({ padding_pct: Number(e.target.value) })}
           disabled={disabled}
         />
+        <div className="setting-range-labels">
+          <span>0</span><span>200</span>
+        </div>
       </div>
 
       <div className="setting-group">

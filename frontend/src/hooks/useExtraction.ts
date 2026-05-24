@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { ExtractionSettings, ExtractionStats, VideoMeta, WsMessage } from '../types';
 import { DEFAULT_SETTINGS } from '../types';
-import { uploadVideo, downloadUrl, getWsUrl } from '../services/api';
+import { uploadVideo, downloadUrl, startExtraction, getWsUrl } from '../services/api';
 import { useWebSocket } from './useWebSocket';
 
 export type ExtractionPhase = 'idle' | 'uploading' | 'ready' | 'downloading' | 'downloaded' | 'extracting' | 'complete' | 'error';
@@ -17,6 +17,17 @@ interface ExtractionState {
   results: string[];
   error: string | null;
   wsUrl: string | null;
+}
+
+const MAX_SHARPNESS = 250;
+
+function clampSettingsForMeta(settings: ExtractionSettings, meta: VideoMeta | null): ExtractionSettings {
+  const maxFps = meta?.fps && meta.fps > 0 ? meta.fps : 15;
+  return {
+    ...settings,
+    blur_threshold: Math.min(settings.blur_threshold, MAX_SHARPNESS),
+    target_fps: Math.min(settings.target_fps, maxFps),
+  };
 }
 
 export function useExtraction() {
@@ -46,7 +57,8 @@ export function useExtraction() {
         phase: 'downloaded',
         progress: 1,
         stage: 'downloaded',
-        videoMeta: { ...s.videoMeta!, is_url: false }, // After download, treat it as a local file for extraction UI
+        videoMeta: msg.meta,
+        settings: clampSettingsForMeta(s.settings, msg.meta),
       }));
     } else if (msg.type === 'complete') {
       setState((s) => ({
@@ -56,7 +68,6 @@ export function useExtraction() {
         stage: 'complete',
         stats: msg.stats,
         results: msg.results,
-        wsUrl: null,
       }));
     } else if (msg.type === 'download_aborted') {
       setState((s) => ({
@@ -96,6 +107,7 @@ export function useExtraction() {
         phase: 'ready',
         jobId: res.job_id,
         videoMeta: res.meta,
+        settings: clampSettingsForMeta(s.settings, res.meta),
         wsUrl: getWsUrl(res.job_id),
       }));
     } catch (err) {
@@ -116,6 +128,7 @@ export function useExtraction() {
         phase: 'ready',
         jobId: res.job_id,
         videoMeta: { ...res.meta, is_url: true },
+        settings: clampSettingsForMeta(s.settings, res.meta),
         wsUrl: getWsUrl(res.job_id),
       }));
     } catch (err) {
@@ -147,23 +160,35 @@ export function useExtraction() {
   const extract = useCallback(async () => {
     if (!state.jobId) return;
 
-    setState((s) => ({
-      ...s,
-      phase: 'extracting',
-      progress: 0,
-      stage: 'starting',
-      stats: null,
-      results: [],
-      error: null,
-    }));
-    
-    send({ action: 'extract', settings: state.settings });
-  }, [state.jobId, state.settings, send]);
+    try {
+      const extractionSettings = clampSettingsForMeta(state.settings, state.videoMeta);
+      await startExtraction(state.jobId, extractionSettings);
+
+      setState((s) => ({
+        ...s,
+        phase: 'extracting',
+        progress: 0,
+        stage: 'starting',
+        stats: null,
+        results: [],
+        error: null,
+        settings: extractionSettings,
+      }));
+
+      send({ action: 'extract', settings: extractionSettings });
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        phase: 'error',
+        error: err instanceof Error ? err.message : 'Extraction failed to start',
+      }));
+    }
+  }, [state.jobId, state.settings, state.videoMeta, send]);
 
   const updateSettings = useCallback((update: Partial<ExtractionSettings>) => {
     setState((s) => ({
       ...s,
-      settings: { ...s.settings, ...update },
+      settings: clampSettingsForMeta({ ...s.settings, ...update }, s.videoMeta),
     }));
   }, []);
 

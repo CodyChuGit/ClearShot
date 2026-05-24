@@ -11,7 +11,6 @@ import os
 import json
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Callable
 
@@ -27,7 +26,7 @@ except ImportError:
     HAS_IMAGEHASH = False
 
 from pipeline.quality import compute_blur_score, compute_blur_score_roi
-from pipeline.cropper import crop_face, crop_body_from_keypoints, make_square, resize_square
+from pipeline.cropper import crop_face, crop_body, crop_body_from_keypoints, make_square, resize_square
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +131,71 @@ def _perceptual_hash(image: np.ndarray) -> object | None:
     return imagehash.phash(pil, hash_size=8)
 
 
+def _remove_previous_outputs(output_dir: str) -> None:
+    """Delete previous extracted frames while preserving uploaded/downloaded videos."""
+    for pattern in ("frame_*.png", "frame_*.jpg", "frame_*.jpeg"):
+        for path in Path(output_dir).glob(pattern):
+            if path.is_file():
+                path.unlink()
+
+
+def _write_image(path: str, image: np.ndarray) -> None:
+    """Write an image and raise if OpenCV fails silently."""
+    ok = cv2.imwrite(path, image)
+    if not ok:
+        raise RuntimeError(f"Failed to write extracted image: {path}")
+
+
+def _min_source_face_size(frame: np.ndarray) -> int:
+    """
+    Minimum face size in original video pixels.
+
+    This is intentionally based on the source frame, not the requested export
+    size. Export size controls the final canvas; it should not make a normal
+    480p/720p portrait video extract zero frames just because the user asked
+    for a 512px output.
+    """
+    short_edge = min(frame.shape[:2])
+    return int(min(96, max(48, round(short_edge * 0.12))))
+
+
+def _min_source_crop_size(frame: np.ndarray) -> int:
+    """Reject genuinely tiny source crops before they are enlarged."""
+    short_edge = min(frame.shape[:2])
+    return int(min(160, max(80, round(short_edge * 0.18))))
+
+
+def _clamped_bbox_size(frame: np.ndarray, bbox: tuple[int, int, int, int]) -> tuple[int, int]:
+    x, y, w, h = bbox
+    if w < 0:
+        x += w
+        w = abs(w)
+    if h < 0:
+        y += h
+        h = abs(h)
+
+    fh, fw = frame.shape[:2]
+    x1 = max(0, min(fw, int(round(x))))
+    y1 = max(0, min(fh, int(round(y))))
+    x2 = max(0, min(fw, int(round(x + w))))
+    y2 = max(0, min(fh, int(round(y + h))))
+    return max(0, x2 - x1), max(0, y2 - y1)
+
+
+def _is_low_resolution_source(
+    frame: np.ndarray,
+    face_bbox: tuple[int, int, int, int],
+    crop: np.ndarray,
+) -> bool:
+    face_w, face_h = _clamped_bbox_size(frame, face_bbox)
+    crop_h, crop_w = crop.shape[:2]
+
+    return (
+        min(face_w, face_h) < _min_source_face_size(frame)
+        or min(crop_w, crop_h) < _min_source_crop_size(frame)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Detector initialization
 # ---------------------------------------------------------------------------
@@ -205,7 +269,21 @@ def extract_frames(
     Returns:
         Tuple of (list of output file paths, stats dict).
     """
+    output_format = output_format.lower()
+
+    if target_fps <= 0:
+        raise ValueError("target_fps must be greater than 0")
+    if output_size <= 0:
+        raise ValueError("output_size must be greater than 0")
+    if crop_mode not in {"face", "body"}:
+        raise ValueError("crop_mode must be 'face' or 'body'")
+    if square_method not in {"center_crop", "letterbox"}:
+        raise ValueError("square_method must be 'center_crop' or 'letterbox'")
+    if output_format not in {"png", "jpg", "jpeg"}:
+        raise ValueError("output_format must be 'png' or 'jpg'")
+
     os.makedirs(output_dir, exist_ok=True)
+    _remove_previous_outputs(output_dir)
 
     # --- Probe video ---
     meta = probe_video(video_path)
@@ -222,14 +300,6 @@ def extract_frames(
     if crop_mode == "body":
         body_type, body_detector = _init_body_detector(detection_confidence)
 
-    # Determine GPU backend for stats
-    try:
-        from pipeline.gpu import detect_gpu
-        gpu_info = detect_gpu()
-        gpu_backend = gpu_info["backend"]
-    except Exception:
-        gpu_backend = "cpu"
-
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video: {video_path}")
@@ -240,10 +310,11 @@ def extract_frames(
     stats = {
         "total_sampled": 0,
         "blurry_discarded": 0,
+        "low_resolution_discarded": 0,
         "no_face_discarded": 0,
         "duplicate_discarded": 0,
         "extracted": 0,
-        "gpu_backend": gpu_backend,
+        "gpu_backend": _active_backend(face_type, face_detector, body_type, body_detector),
     }
 
     ext = "png" if output_format == "png" else "jpg"
@@ -252,6 +323,7 @@ def extract_frames(
     import concurrent.futures
     # Use a thread pool to write images asynchronously, unblocking the GPU/CPU inference loop
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+    write_futures: list[concurrent.futures.Future] = []
 
     try:
         while True:
@@ -278,8 +350,6 @@ def extract_frames(
                     f"Detecting faces — frame {frame_idx}/{frame_count} | Extracted: {stats['extracted']}"
                 )
 
-            fh, fw = frame.shape[:2]
-
             # --- Face detection ---
             face_bboxes = _detect_faces(face_type, face_detector, frame, detection_confidence)
 
@@ -290,6 +360,10 @@ def extract_frames(
 
             # Process every detected face in the frame
             for det_idx, face_bbox in enumerate(face_bboxes):
+                if min(_clamped_bbox_size(frame, face_bbox)) < _min_source_face_size(frame):
+                    stats["low_resolution_discarded"] += 1
+                    continue
+
                 # --- Blur check on face region ---
                 blur_score = compute_blur_score_roi(frame, face_bbox)
                 if blur_score < blur_threshold:
@@ -299,7 +373,12 @@ def extract_frames(
                 # --- Crop ---
                 if crop_mode == "body" and body_detector is not None:
                     cropped = _crop_body(
-                        body_type, body_detector, frame, face_bbox, padding_pct
+                        body_type,
+                        body_detector,
+                        frame,
+                        face_bbox,
+                        padding_pct,
+                        detection_confidence,
                     )
                     if cropped is None:
                         cropped = crop_face(frame, face_bbox, padding_pct * 2)
@@ -307,6 +386,15 @@ def extract_frames(
                     cropped = crop_face(frame, face_bbox, padding_pct)
 
                 if cropped is None or cropped.size == 0:
+                    continue
+
+                if _is_low_resolution_source(frame, face_bbox, cropped):
+                    stats["low_resolution_discarded"] += 1
+                    continue
+
+                crop_blur_score = compute_blur_score(cropped)
+                if crop_blur_score < blur_threshold * 0.35:
+                    stats["blurry_discarded"] += 1
                     continue
 
                 # --- Dedup ---
@@ -329,13 +417,17 @@ def extract_frames(
                 # OPTIMIZATION 2: Async I/O for saving images
                 filename = f"frame_{frame_idx:06d}_face_{det_idx}.{ext}"
                 out_path = os.path.join(output_dir, filename)
-                executor.submit(cv2.imwrite, out_path, final)
+                write_futures.append(executor.submit(_write_image, out_path, final))
                 output_paths.append(out_path)
                 stats["extracted"] += 1
 
             frame_idx += 1
 
+        for future in write_futures:
+            future.result()
+
     finally:
+        stats["gpu_backend"] = _active_backend(face_type, face_detector, body_type, body_detector)
         cap.release()
         _close_detector(face_type, face_detector)
         if body_detector is not None:
@@ -395,12 +487,13 @@ def _crop_body(
     frame: np.ndarray,
     face_bbox: tuple[int, int, int, int],
     padding_pct: float,
+    detection_confidence: float,
 ) -> np.ndarray | None:
     """
     Crop body region using either ONNX or MediaPipe detector.
     """
     if detector_type == "onnx":
-        bodies = detector.detect(frame)
+        bodies = detector.detect(frame, confidence=detection_confidence)
         if bodies:
             # Find the body detection closest to the face
             face_cx = face_bbox[0] + face_bbox[2] / 2
@@ -429,6 +522,34 @@ def _crop_body(
                 padding_pct,
             )
         return None
+
+
+def _active_backend(
+    face_type: str,
+    face_detector,
+    body_type: str | None,
+    body_detector,
+) -> str:
+    """Return the detector backend currently in use, including runtime fallback."""
+    backends = []
+    if face_type == "onnx":
+        backends.append(getattr(face_detector, "backend", "cpu"))
+    else:
+        backends.append("cpu")
+
+    if body_detector is not None:
+        if body_type == "onnx":
+            backends.append(getattr(body_detector, "backend", "cpu"))
+        else:
+            backends.append("cpu")
+
+    unique_backends = list(dict.fromkeys(backends))
+    non_cpu = [backend for backend in unique_backends if backend != "cpu"]
+    if not non_cpu:
+        return "cpu"
+
+    ordered = non_cpu + [backend for backend in unique_backends if backend == "cpu"]
+    return "+".join(ordered)
 
 
 def _close_detector(detector_type: str, detector):

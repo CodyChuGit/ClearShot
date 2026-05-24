@@ -68,6 +68,10 @@ export const getVideoUrl = (jobId: string) => {
   return `${API_BASE}/video/${jobId}`;
 };
 
+export const getVideoDownloadUrl = (jobId: string) => {
+  return `${API_BASE}/video/${jobId}/download`;
+};
+
 export function getWsUrl(jobId: string): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;

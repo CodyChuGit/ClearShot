@@ -8,6 +8,18 @@ import cv2
 import numpy as np
 
 
+def _normalize_bbox(bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """Return a bbox with positive width/height."""
+    x, y, w, h = bbox
+    if w < 0:
+        x += w
+        w = abs(w)
+    if h < 0:
+        y += h
+        h = abs(h)
+    return int(round(x)), int(round(y)), int(round(w)), int(round(h))
+
+
 def expand_bbox(
     bbox: tuple[int, int, int, int],
     padding_pct: float,
@@ -26,22 +38,33 @@ def expand_bbox(
     Returns:
         Expanded (x, y, w, h).
     """
-    x, y, w, h = bbox
+    x, y, w, h = _normalize_bbox(bbox)
     pad_x = int(w * padding_pct)
     pad_y = int(h * padding_pct)
 
-    x1 = max(0, x - pad_x)
-    y1 = max(0, y - pad_y)
-    x2 = min(frame_w, x + w + pad_x)
-    y2 = min(frame_h, y + h + pad_y)
+    x1 = max(0, min(frame_w, x - pad_x))
+    y1 = max(0, min(frame_h, y - pad_y))
+    x2 = max(0, min(frame_w, x + w + pad_x))
+    y2 = max(0, min(frame_h, y + h + pad_y))
 
     return (x1, y1, x2 - x1, y2 - y1)
 
 
 def crop_region(frame: np.ndarray, bbox: tuple[int, int, int, int]) -> np.ndarray:
     """Crop a region from a frame given (x, y, w, h)."""
-    x, y, w, h = bbox
-    return frame[y : y + h, x : x + w].copy()
+    fh, fw = frame.shape[:2]
+    x, y, w, h = _normalize_bbox(bbox)
+
+    x1 = max(0, min(fw, x))
+    y1 = max(0, min(fh, y))
+    x2 = max(0, min(fw, x + w))
+    y2 = max(0, min(fh, y + h))
+
+    if x2 <= x1 or y2 <= y1:
+        empty_shape = (0, 0) if frame.ndim == 2 else (0, 0, frame.shape[2])
+        return np.empty(empty_shape, dtype=frame.dtype)
+
+    return frame[y1:y2, x1:x2].copy()
 
 
 def crop_face(
@@ -166,6 +189,8 @@ def make_square(
         Square image.
     """
     h, w = image.shape[:2]
+    if h == 0 or w == 0:
+        raise ValueError("Cannot make an empty image square")
 
     if method == "center_crop":
         size = min(h, w)

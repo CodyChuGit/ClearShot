@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Play, Download, RotateCcw, XCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Header } from './components/Header';
@@ -8,7 +8,7 @@ import { ProgressBar } from './components/ProgressBar';
 import { Gallery } from './components/Gallery';
 import { StatsCard } from './components/StatsCard';
 import { useExtraction } from './hooks/useExtraction';
-import { getDownloadUrl } from './services/api';
+import { getDownloadUrl, getVideoDownloadUrl } from './services/api';
 import './index.css';
 
 function App() {
@@ -31,13 +31,16 @@ function App() {
     reset,
   } = useExtraction();
 
-  const [selectedFormatId, setSelectedFormatId] = useState<string>('');
-
-  useEffect(() => {
-    if (videoMeta?.format_id) {
-      setSelectedFormatId(videoMeta.format_id);
-    }
-  }, [videoMeta?.format_id]);
+  const [selectedFormat, setSelectedFormat] = useState<{ jobId: string | null; formatId: string }>({
+    jobId: null,
+    formatId: '',
+  });
+  const selectedFormatId = selectedFormat.jobId === jobId
+    ? selectedFormat.formatId
+    : videoMeta?.format_id ?? '';
+  const setSelectedFormatId = (formatId: string) => {
+    setSelectedFormat({ jobId, formatId });
+  };
 
   const isExtracting = phase === 'extracting';
   const isDownloading = phase === 'downloading';
@@ -49,6 +52,7 @@ function App() {
   const showProgress = phase === 'extracting' || phase === 'downloading';
   const showResults = phase === 'complete' && results.length > 0;
   const showError = phase === 'error' && error;
+  const canDownloadVideo = Boolean(jobId && videoMeta?.downloaded_from_url);
 
   return (
     <div className="app">
@@ -77,13 +81,14 @@ function App() {
                   settings={settings}
                   onChange={updateSettings}
                   disabled={isWorking}
+                  maxTargetFps={videoMeta?.fps}
                 />
 
                 <div className="action-bar">
                   {(phase === 'ready' || phase === 'downloaded') && (
                     <button
                       className="btn btn--primary btn--lg"
-                      style={{ width: '100%' }}
+                      style={canDownloadVideo ? undefined : { width: '100%' }}
                       onClick={extract}
                       disabled={isWorking || !jobId}
                     >
@@ -95,20 +100,42 @@ function App() {
                       <span>{isWorking ? 'Processing...' : 'Extract Frames'}</span>
                     </button>
                   )}
+                  {canDownloadVideo && phase === 'downloaded' && jobId && (
+                    <a
+                      className="btn btn--secondary btn--lg"
+                      href={getVideoDownloadUrl(jobId)}
+                      download
+                    >
+                      <Download size={20} />
+                      Download Video
+                    </a>
+                  )}
                   {phase === 'complete' && (
                     <>
                       <button className="btn btn--primary" onClick={extract}>
                         <RotateCcw size={14} />
                         Re-extract
                       </button>
+                      {canDownloadVideo && jobId && (
+                        <a
+                          className="btn btn--secondary"
+                          href={getVideoDownloadUrl(jobId)}
+                          download
+                        >
+                          <Download size={14} />
+                          Video
+                        </a>
+                      )}
                       {jobId && (
                         <a
                           className="btn btn--secondary"
                           href={getDownloadUrl(jobId)}
                           download
+                          title="Download results ZIP"
+                          aria-label="Download results ZIP"
                         >
                           <Download size={14} />
-                          Download ZIP
+                          ZIP
                         </a>
                       )}
                     </>

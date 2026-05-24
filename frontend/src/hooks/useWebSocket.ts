@@ -9,9 +9,12 @@ interface UseWebSocketOptions {
 
 export function useWebSocket(url: string | null, options: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
+  const pendingMessagesRef = useRef<unknown[]>([]);
   const [connected, setConnected] = useState(false);
+  const [reconnectToken, setReconnectToken] = useState(0);
 
   const close = useCallback(() => {
+    pendingMessagesRef.current = [];
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -20,12 +23,20 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions) {
   }, []);
 
   useEffect(() => {
-    if (!url) return;
+    if (!url) {
+      pendingMessagesRef.current = [];
+      return;
+    }
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      setConnected(true);
+      while (pendingMessagesRef.current.length > 0 && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(pendingMessagesRef.current.shift()));
+      }
+    };
 
     ws.onmessage = (event) => {
       try {
@@ -52,15 +63,20 @@ export function useWebSocket(url: string | null, options: UseWebSocketOptions) {
       setConnected(false);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url]);
+  }, [url, reconnectToken]);
 
-  const send = useCallback((data: any) => {
+  const send = useCallback((data: unknown) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(data));
+    } else if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
+      pendingMessagesRef.current.push(data);
+    } else if (url) {
+      pendingMessagesRef.current.push(data);
+      setReconnectToken((token) => token + 1);
     } else {
       console.warn('[WS] Cannot send message, socket is not open');
     }
-  }, []);
+  }, [url]);
 
   return { connected, close, send };
 }

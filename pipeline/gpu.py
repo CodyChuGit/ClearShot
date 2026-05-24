@@ -10,7 +10,10 @@ best available provider.
 
 import platform
 import functools
+import os
+import tempfile
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from typing import Any
 
 
@@ -24,6 +27,9 @@ class GpuInfo:
         return asdict(self)
 
 
+COREML_COMPUTE_UNITS = os.environ.get("CLEARSHOT_COREML_COMPUTE_UNITS", "CPUAndGPU")
+
+
 @functools.lru_cache(maxsize=1)
 def detect_gpu() -> dict[str, str]:
     """
@@ -33,6 +39,9 @@ def detect_gpu() -> dict[str, str]:
     Result is cached — only runs once per process.
     """
     providers = _get_available_providers()
+
+    if os.environ.get("CLEARSHOT_DISABLE_COREML") == "1":
+        providers = [p for p in providers if p != "CoreMLExecutionProvider"]
 
     # Try CUDA first (NVIDIA)
     if "CUDAExecutionProvider" in providers:
@@ -78,9 +87,12 @@ def get_providers() -> list[Any]:
             "CPUExecutionProvider",
         ]
     elif provider == "CoreMLExecutionProvider":
+        _prepare_coreml_temp_dir()
         return [
             ("CoreMLExecutionProvider", {
-                "MLComputeUnits": "ALL",
+                # CPUAndGPU maps CoreML work to the Metal GPU path instead of CPU-only.
+                # CPU remains available for operators CoreML cannot partition.
+                "MLComputeUnits": COREML_COMPUTE_UNITS,
             }),
             "CPUExecutionProvider",
         ]
@@ -102,6 +114,8 @@ def create_session(model_path: str, **kwargs):
     import onnxruntime as ort
 
     providers = get_providers()
+    if _uses_coreml(providers):
+        _prepare_coreml_temp_dir()
 
     sess_options = ort.SessionOptions()
     sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -110,13 +124,23 @@ def create_session(model_path: str, **kwargs):
     sess_options.intra_op_num_threads = 4
     sess_options.inter_op_num_threads = 2
 
-    session = ort.InferenceSession(
+    return _create_session_with_fallback(ort, model_path, sess_options, providers)
+
+
+def create_cpu_session(model_path: str, **kwargs):
+    """Create an ONNX Runtime session pinned to CPU."""
+    import onnxruntime as ort
+
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    sess_options.intra_op_num_threads = 4
+    sess_options.inter_op_num_threads = 2
+
+    return ort.InferenceSession(
         model_path,
         sess_options=sess_options,
-        providers=providers,
+        providers=["CPUExecutionProvider"],
     )
-
-    return session
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +154,49 @@ def _get_available_providers() -> list[str]:
         return ort.get_available_providers()
     except ImportError:
         return ["CPUExecutionProvider"]
+
+
+def _create_session_with_fallback(ort, model_path: str, sess_options, providers: list[Any]):
+    try:
+        return ort.InferenceSession(
+            model_path,
+            sess_options=sess_options,
+            providers=providers,
+        )
+    except Exception as exc:
+        if providers == ["CPUExecutionProvider"]:
+            raise
+
+        print(f"[ClearShot] GPU provider failed for {model_path} ({exc}); retrying on CPU")
+        return ort.InferenceSession(
+            model_path,
+            sess_options=sess_options,
+            providers=["CPUExecutionProvider"],
+        )
+
+
+def _uses_coreml(providers: list[Any]) -> bool:
+    for provider in providers:
+        if provider == "CoreMLExecutionProvider":
+            return True
+        if isinstance(provider, tuple) and provider[0] == "CoreMLExecutionProvider":
+            return True
+    return False
+
+
+def _prepare_coreml_temp_dir() -> str:
+    """
+    CoreML model compilation fails if macOS hands it the bare temp root URL.
+    Point TMPDIR at an app-owned subdirectory so CoreML can create its working
+    package and compiled model artifacts reliably.
+    """
+    tmp_dir = Path(os.environ.get("CLEARSHOT_COREML_TMPDIR", tempfile.gettempdir()))
+    if tmp_dir.name != "clearshot_coreml_tmp":
+        tmp_dir = tmp_dir / "clearshot_coreml_tmp"
+
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["TMPDIR"] = str(tmp_dir) + os.sep
+    return os.environ["TMPDIR"]
 
 
 def _get_cuda_device_name() -> str:

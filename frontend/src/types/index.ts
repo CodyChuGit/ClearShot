@@ -7,6 +7,7 @@ export interface VideoMeta {
   format_id?: string;
   thumbnail_url?: string;
   is_url?: boolean;
+  downloaded_from_url?: boolean;
   available_formats?: Array<{
     format_id: string;
     resolution: string;
@@ -36,6 +37,7 @@ export interface ExtractionSettings {
 export interface ExtractionStats {
   total_sampled: number;
   blurry_discarded: number;
+  low_resolution_discarded: number;
   no_face_discarded: number;
   duplicate_discarded: number;
   extracted: number;
@@ -64,6 +66,7 @@ export interface ErrorMessage {
 export interface DownloadCompleteMessage {
   type: 'download_complete';
   video_path: string;
+  meta: VideoMeta;
 }
 
 export interface DownloadAbortedMessage {

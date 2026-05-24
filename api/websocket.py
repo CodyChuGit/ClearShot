@@ -7,10 +7,11 @@ WebSocket handler for real-time extraction progress.
 import asyncio
 import json
 import traceback
+from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from pipeline.extractor import extract_frames
+from pipeline.extractor import extract_frames, probe_video
 from api.routes import JOBS
 
 
@@ -76,9 +77,17 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
                 format_id=job.get("meta", {}).get("format_id", "bestvideo"),
                 should_abort=lambda: job.get("abort", False)
             )
+            downloaded_meta = {
+                **job.get("meta", {}),
+                **probe_video(job["video_path"]),
+                "is_url": False,
+                "downloaded_from_url": True,
+            }
+            job["meta"] = downloaded_meta
             loop.call_soon_threadsafe(progress_queue.put_nowait, {
                 "type": "download_complete",
-                "video_path": job["video_path"]
+                "video_path": job["video_path"],
+                "meta": downloaded_meta,
             })
             job["status"] = "downloaded"
         except Exception as e:
@@ -98,6 +107,9 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
 
     def run_extract(settings: dict):
         try:
+            if not job.get("video_path"):
+                raise RuntimeError("Video is not available for extraction")
+
             paths, stats = extract_frames(
                 video_path=job["video_path"],
                 output_dir=job["output_dir"],
@@ -118,7 +130,7 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
             job["results"] = paths
             job["progress"] = 1.0
 
-            result_filenames = [f"/api/results/{job_id}/{p.split('/')[-1]}" for p in paths]
+            result_filenames = [f"/api/results/{job_id}/{Path(p).name}" for p in paths]
 
             loop.call_soon_threadsafe(progress_queue.put_nowait, {
                 "type": "complete",
@@ -127,6 +139,7 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
                 "total": len(paths),
             })
         except Exception as e:
+            traceback.print_exc()
             loop.call_soon_threadsafe(progress_queue.put_nowait, {
                 "type": "error",
                 "error": str(e)

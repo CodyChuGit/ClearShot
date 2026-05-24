@@ -34,6 +34,14 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_BASE, exist_ok=True)
 
 
+def _clean_result_files(output_dir: str) -> None:
+    """Remove generated frames without deleting uploaded/downloaded videos."""
+    for pattern in ("frame_*.png", "frame_*.jpg", "frame_*.jpeg"):
+        for path in Path(output_dir).glob(pattern):
+            if path.is_file():
+                path.unlink()
+
+
 class ExtractionSettings(BaseModel):
     target_fps: float = 2.0
     blur_threshold: float = 100.0
@@ -133,8 +141,10 @@ async def start_extraction(job_id: str, settings: ExtractionSettings):
     job = JOBS.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job["status"] not in ("uploaded", "ready", "complete", "error"):
+    if job["status"] not in ("uploaded", "ready", "downloaded", "complete", "error"):
         raise HTTPException(status_code=409, detail="Extraction already running")
+    if not job.get("video_path") or not os.path.exists(job["video_path"]):
+        raise HTTPException(status_code=400, detail="Video is not available for extraction")
 
     # Reset job state
     job["status"] = "pending"
@@ -144,11 +154,10 @@ async def start_extraction(job_id: str, settings: ExtractionSettings):
     job["results"] = []
     job["settings"] = settings.model_dump()
 
-    # Clean output dir
+    # Clean previous generated frames, preserving downloaded videos in the same folder.
     output_dir = job["output_dir"]
-    if os.path.exists(output_dir):
-        shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
+    _clean_result_files(output_dir)
 
     return {"job_id": job_id, "status": "pending"}
 
@@ -201,7 +210,7 @@ async def delete_job(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
 
     # Cleanup files
-    if os.path.exists(job["video_path"]):
+    if job.get("video_path") and os.path.exists(job["video_path"]):
         os.remove(job["video_path"])
     if os.path.exists(job["output_dir"]):
         shutil.rmtree(job["output_dir"])

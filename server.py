@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -47,7 +47,7 @@ async def serve_result(job_id: str, filename: str):
     """Serve an individual result image."""
     file_path = os.path.join(OUTPUT_BASE, job_id, filename)
     if not os.path.exists(file_path):
-        return {"error": "File not found"}, 404
+        raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(file_path)
 
 from api.routes import JOBS
@@ -57,8 +57,23 @@ async def serve_video(job_id: str):
     """Serve the downloaded video file for scrubbing/preview."""
     job = JOBS.get(job_id)
     if not job or not job.get("video_path") or not os.path.exists(job["video_path"]):
-        return {"error": "Video not found"}, 404
+        raise HTTPException(status_code=404, detail="Video not found")
     return FileResponse(job["video_path"])
+
+
+@app.get("/api/video/{job_id}/download")
+async def download_video(job_id: str):
+    """Download the source/downloaded video file."""
+    job = JOBS.get(job_id)
+    if not job or not job.get("video_path") or not os.path.exists(job["video_path"]):
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    video_path = Path(job["video_path"])
+    return FileResponse(
+        str(video_path),
+        filename=f"clearshot_{job_id}{video_path.suffix or '.mp4'}",
+        media_type="application/octet-stream",
+    )
 
 
 # ---------------------------------------------------------------------------
