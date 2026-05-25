@@ -127,3 +127,4 @@ For a complete breakdown of the application architecture, GPU optimization detai
 | Output Size | 512px | Final image dimension. |
 | Output Format | PNG | PNG (lossless) or JPG. |
 | De-dup Sensitivity | 8 | 0 = off, higher = more aggressive perceptual deduplication. |
+| Occlusion Strictness | 50 | 0 = off. Uses an OpenCV texture variance ratio to drop faces covered by hands, mics, or masks. |
