@@ -45,10 +45,16 @@ app.include_router(ws_router)
 @app.get("/api/results/{job_id}/{filename}")
 async def serve_result(job_id: str, filename: str):
     """Serve an individual result image."""
-    file_path = os.path.join(OUTPUT_BASE, job_id, filename)
-    if not os.path.exists(file_path):
+    base_dir = Path(os.path.join(OUTPUT_BASE, job_id)).resolve()
+    file_path = (base_dir / filename).resolve()
+    
+    # Security: Ensure resolved path is within the intended directory
+    if not str(file_path).startswith(str(base_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+        
+    if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(file_path)
+    return FileResponse(str(file_path))
 
 from api.routes import JOBS
 
@@ -93,10 +99,16 @@ if FRONTEND_BUILD.exists():
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         """Serve the React SPA — all non-API routes go to index.html."""
-        file_path = FRONTEND_BUILD / full_path
+        base_dir = FRONTEND_BUILD.resolve()
+        file_path = (base_dir / full_path).resolve()
+        
+        # Security: Prevent path traversal by validating containment
+        if not str(file_path).startswith(str(base_dir)):
+            return FileResponse(str(base_dir / "index.html"))
+            
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
-        return FileResponse(str(FRONTEND_BUILD / "index.html"))
+        return FileResponse(str(base_dir / "index.html"))
 
 
 # ---------------------------------------------------------------------------
