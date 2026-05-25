@@ -175,7 +175,7 @@ Default settings:
 }
 ```
 
-- **Face Occlusion Filter**: Analyzes the 5 SCRFD structural keypoints (eyes, nose, mouth corners) to assign a continuous "Structural Integrity Score" (0-100) based on deviation from biologically ideal proportions. Faces scoring below the `occlusion_threshold` (e.g. deformed by hands or masks) are discarded. Runs at zero performance cost.
+- **Occlusion Filter**: When `occlusion_threshold` is above `0`, the extractor initializes the YOLOv8n-pose body detector and rejects faces when visible arm/hand keypoints land inside the face box. MediaPipe hand-landmarker checks are opt-in with `CLEARSHOT_ENABLE_HAND_OCCLUSION=1` because that native runtime can hard-abort on some macOS/headless environments.
 
 ---
 

@@ -211,8 +211,10 @@ def make_square(
 
 
 def resize_square(image: np.ndarray, size: int = 512) -> np.ndarray:
-    """Resize a (presumably square) image to size×size. Never scale up to preserve native resolution."""
-    h = image.shape[0]
-    if h <= size:
-        return image
-    return cv2.resize(image, (size, size), interpolation=cv2.INTER_AREA)
+    """Resize a (presumably square) image to size×size."""
+    h, w = image.shape[:2]
+    if h == size and w == size:
+        return image.copy()
+
+    interpolation = cv2.INTER_AREA if max(h, w) > size else cv2.INTER_LANCZOS4
+    return cv2.resize(image, (size, size), interpolation=interpolation)
