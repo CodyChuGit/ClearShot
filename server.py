@@ -67,6 +67,22 @@ app = FastAPI(
 async def startup_event():
     asyncio.create_task(garbage_collection_loop())
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Gracefully wipe all cache when the server is stopped."""
+    from api.routes import JOBS
+    JOBS.clear()
+    
+    if os.path.exists(UPLOAD_DIR):
+        for f in os.listdir(UPLOAD_DIR):
+            try: os.remove(os.path.join(UPLOAD_DIR, f))
+            except: pass
+            
+    if os.path.exists(OUTPUT_BASE):
+        for d in os.listdir(OUTPUT_BASE):
+            try: shutil.rmtree(os.path.join(OUTPUT_BASE, d))
+            except: pass
+
 # CORS — allow Vite dev server
 app.add_middleware(
     CORSMiddleware,
