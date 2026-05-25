@@ -147,49 +147,7 @@ def _write_image(path: str, image: np.ndarray) -> None:
         raise RuntimeError(f"Failed to write extracted image: {path}")
 
 
-def is_occluded(kps: list[tuple[float, float]] | None) -> bool:
-    """
-    Check if a face is heavily occluded using the 5 SCRFD structural keypoints:
-    [left_eye, right_eye, nose, left_mouth, right_mouth].
-    """
-    if not kps or len(kps) < 5:
-        return False
-        
-    le = np.array(kps[0])
-    re = np.array(kps[1])
-    nose = np.array(kps[2])
-    lm = np.array(kps[3])
-    rm = np.array(kps[4])
-    
-    eye_center = (le + re) / 2
-    mouth_center = (lm + rm) / 2
-    
-    eye_dist = np.linalg.norm(le - re)
-    face_length = np.linalg.norm(eye_center - mouth_center)
-    
-    if eye_dist == 0 or face_length == 0:
-        return True
-        
-    # 1. Eyes should physically be above mouth (y-axis increases downwards in image)
-    if eye_center[1] >= mouth_center[1]:
-        return True
-        
-    # 2. Ratio of face length to eye width
-    ratio = face_length / eye_dist
-    if ratio < 0.5 or ratio > 2.5:
-        return True
-        
-    # 3. Nose should be roughly between eyes and mouth
-    nose_dist = np.linalg.norm(nose - eye_center) + np.linalg.norm(nose - mouth_center)
-    if nose_dist > face_length * 1.5:
-        return True
-        
-    # 4. Mouth width vs Eye width
-    mouth_dist = np.linalg.norm(lm - rm)
-    if mouth_dist > eye_dist * 2.0 or mouth_dist < eye_dist * 0.3:
-        return True
-        
-    return False
+
 
 
 def _min_source_face_size(frame: np.ndarray) -> int:
@@ -305,7 +263,7 @@ def extract_frames(
     output_size: int = 512,
     output_format: str = "png",
     dedup_threshold: int = 8,         # hamming distance for dedup
-    filter_occluded: bool = True,
+    occlusion_threshold: int = 50,    # 0 to 100, 0 = off
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> tuple[list[str], dict]:
     """
@@ -350,6 +308,31 @@ def extract_frames(
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video: {video_path}")
+        
+    mp_landmarker = None
+    if occlusion_threshold > 0:
+        import mediapipe as mp
+        BaseOptions = mp.tasks.BaseOptions
+        FaceLandmarker = mp.tasks.vision.FaceLandmarker
+        FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
+        VisionRunningMode = mp.tasks.vision.RunningMode
+        
+        # Map 0-100 strictness to 0.1-0.9 confidence
+        confidence = max(0.1, min(0.9, occlusion_threshold / 100.0))
+        
+        model_path = os.path.join(os.path.dirname(__file__), "models", "face_landmarker.task")
+        if not os.path.exists(model_path):
+            raise RuntimeError(f"Face Landmarker model not found at {model_path}")
+            
+        options = FaceLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=model_path),
+            running_mode=VisionRunningMode.IMAGE,
+            output_face_blendshapes=False,
+            num_faces=1,
+            min_face_detection_confidence=confidence,
+            min_face_presence_confidence=confidence,
+        )
+        mp_landmarker = FaceLandmarker.create_from_options(options)
 
     output_paths = []
     seen_hashes = set()
@@ -410,9 +393,22 @@ def extract_frames(
             for det_idx, face in enumerate(face_bboxes):
                 face_bbox = (face.x, face.y, face.w, face.h)
                 
-                if filter_occluded and is_occluded(face.keypoints):
-                    stats["occluded_discarded"] += 1
-                    continue
+                if mp_landmarker is not None:
+                    x, y, w, h = face_bbox
+                    # Pad the face crop slightly so mediapipe can see the whole context
+                    pad = int(max(w, h) * 0.1)
+                    y1, y2 = max(0, int(y-pad)), min(frame.shape[0], int(y+h+pad))
+                    x1, x2 = max(0, int(x-pad)), min(frame.shape[1], int(x+w+pad))
+                    face_crop = frame[y1:y2, x1:x2]
+                    
+                    if face_crop.size > 0:
+                        face_crop_rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
+                        import mediapipe as mp
+                        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=face_crop_rgb)
+                        res = mp_landmarker.detect(mp_img)
+                        if len(res.face_landmarks) == 0:
+                            stats["occluded_discarded"] += 1
+                            continue
                     
                 if min(_clamped_bbox_size(frame, face_bbox)) < _min_source_face_size(frame):
                     stats["low_resolution_discarded"] += 1
@@ -486,6 +482,8 @@ def extract_frames(
         _close_detector(face_type, face_detector)
         if body_detector is not None:
             _close_detector(body_type, body_detector)
+        if mp_landmarker is not None:
+            mp_landmarker.close()
         
         # Ensure all writes complete before returning
         executor.shutdown(wait=True)
