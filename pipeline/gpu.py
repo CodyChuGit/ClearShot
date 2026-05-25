@@ -88,10 +88,17 @@ def get_providers() -> list[Any]:
         ]
     elif provider == "CoreMLExecutionProvider":
         _prepare_coreml_temp_dir()
+        # Set env var as framework-level fallback — ORT 1.19 silently
+        # ignores the dict options for CoreML, so this ensures the
+        # CoreML framework itself sees the compute-units preference.
+        os.environ["COREML_COMPUTE_UNITS"] = COREML_COMPUTE_UNITS
         return [
             ("CoreMLExecutionProvider", {
-                # CPUAndGPU maps CoreML work to the Metal GPU path instead of CPU-only.
-                # CPU remains available for operators CoreML cannot partition.
+                # MLProgram format enables modern CoreML code path with
+                # better GPU/ANE dispatch vs legacy NeuralNetwork format.
+                "ModelFormat": "MLProgram",
+                # Static shapes let CoreML compile optimized Metal shaders.
+                "RequireStaticInputShapes": "1",
                 "MLComputeUnits": COREML_COMPUTE_UNITS,
             }),
             "CPUExecutionProvider",
