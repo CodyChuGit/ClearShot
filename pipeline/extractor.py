@@ -346,11 +346,12 @@ def extract_frames(
     # Async Video Decoding
     # -----------------------------------------------------------------------
     frame_q = queue.Queue(maxsize=4)
+    stop_event = threading.Event()
     
     def frame_reader():
         frame_idx = 0
         try:
-            while True:
+            while not stop_event.is_set():
                 # OPTIMIZATION 1: Bypass decoding for frames we are going to skip
                 if frame_idx % frame_interval != 0:
                     ret = cap.grab()
@@ -365,10 +366,18 @@ def extract_frames(
                     break
                 
                 # Block if the inference loop is slower than the decoding loop
-                frame_q.put((frame_idx, frame))
+                while not stop_event.is_set():
+                    try:
+                        frame_q.put((frame_idx, frame), timeout=0.1)
+                        break
+                    except queue.Full:
+                        pass
                 frame_idx += 1
         finally:
-            frame_q.put(None)
+            try:
+                frame_q.put(None, timeout=0.1)
+            except queue.Full:
+                pass
             
     reader_thread = threading.Thread(target=frame_reader, daemon=True)
     reader_thread.start()
@@ -515,11 +524,15 @@ def extract_frames(
             future.result()
 
     finally:
+        stop_event.set()  # Signal reader_thread to stop
+        
         stats["gpu_backend"] = _active_backend(face_type, face_detector, body_type, body_detector)
         cap.release()
         _close_detector(face_type, face_detector)
         if body_detector is not None:
             _close_detector(body_type, body_detector)
+        if hand_detector is not None:
+            hand_detector.close()
         
         # Ensure all writes complete before returning
         executor.shutdown(wait=True)
