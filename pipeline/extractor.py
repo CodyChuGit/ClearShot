@@ -16,7 +16,6 @@ from typing import Callable
 
 import cv2
 import numpy as np
-from numpy.typing import NDArray
 from PIL import Image
 import queue
 import threading
@@ -38,12 +37,6 @@ from pipeline.face_detector import FaceDetection
 # ---------------------------------------------------------------------------
 
 def probe_video(path: str) -> dict:
-    """
-    Get video metadata. Tries ffprobe first, falls back to OpenCV.
-
-    Returns:
-        dict with keys: fps, duration, width, height, frame_count
-    """
     meta = _probe_ffprobe(path)
     if meta is None:
         meta = _probe_opencv(path)
@@ -51,7 +44,6 @@ def probe_video(path: str) -> dict:
 
 
 def _probe_ffprobe(path: str) -> dict | None:
-    """Use ffprobe to get video metadata."""
     ffprobe = shutil.which("ffprobe")
     if ffprobe is None:
         return None
@@ -79,7 +71,6 @@ def _probe_ffprobe(path: str) -> dict | None:
         if video_stream is None:
             return None
 
-        # Parse FPS from r_frame_rate (e.g., "30/1" or "30000/1001")
         fps_str = video_stream.get("r_frame_rate", "30/1")
         num, den = fps_str.split("/")
         fps = float(num) / float(den)
@@ -104,7 +95,6 @@ def _probe_ffprobe(path: str) -> dict | None:
 
 
 def _probe_opencv(path: str) -> dict:
-    """Fallback: use OpenCV to get video metadata."""
     cap = cv2.VideoCapture(path)
     try:
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -124,11 +114,10 @@ def _probe_opencv(path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Deduplication
+# Helpers
 # ---------------------------------------------------------------------------
 
 def _perceptual_hash(image: np.ndarray) -> object | None:
-    """Compute perceptual hash for dedup. Returns None if imagehash unavailable."""
     if not HAS_IMAGEHASH:
         return None
     pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
@@ -136,7 +125,6 @@ def _perceptual_hash(image: np.ndarray) -> object | None:
 
 
 def _remove_previous_outputs(output_dir: str) -> None:
-    """Delete previous extracted frames while preserving uploaded/downloaded videos."""
     for pattern in ("frame_*.png", "frame_*.jpg", "frame_*.jpeg"):
         for path in Path(output_dir).glob(pattern):
             if path.is_file():
@@ -144,31 +132,17 @@ def _remove_previous_outputs(output_dir: str) -> None:
 
 
 def _write_image(path: str, image: np.ndarray) -> None:
-    """Write an image and raise if OpenCV fails silently."""
     ok = cv2.imwrite(path, image)
     if not ok:
         raise RuntimeError(f"Failed to write extracted image: {path}")
 
 
-
-
-
-
 def _min_source_face_size(frame: np.ndarray) -> int:
-    """
-    Minimum face size in original video pixels.
-
-    This is intentionally based on the source frame, not the requested export
-    size. Export size controls the final canvas; it should not make a normal
-    480p/720p portrait video extract zero frames just because the user asked
-    for a 512px output.
-    """
     short_edge = min(frame.shape[:2])
     return int(min(96, max(48, round(short_edge * 0.12))))
 
 
 def _min_source_crop_size(frame: np.ndarray) -> int:
-    """Reject genuinely tiny source crops before they are enlarged."""
     short_edge = min(frame.shape[:2])
     return int(min(160, max(80, round(short_edge * 0.18))))
 
@@ -205,14 +179,10 @@ def _is_low_resolution_source(
 
 
 # ---------------------------------------------------------------------------
-# Detector initialization
+# Detector abstractions
 # ---------------------------------------------------------------------------
 
 def _init_face_detector(detection_confidence: float):
-    """
-    Initialize face detector. Tries ONNX-based SCRFD first,
-    falls back to MediaPipe.
-    """
     try:
         from pipeline.face_detector import FaceDetector
         detector = FaceDetector()
@@ -230,10 +200,6 @@ def _init_face_detector(detection_confidence: float):
 
 
 def _init_body_detector(detection_confidence: float):
-    """
-    Initialize body detector. Tries ONNX-based YOLOv8-pose first,
-    falls back to MediaPipe Pose.
-    """
     try:
         from pipeline.body_detector import BodyDetector
         detector = BodyDetector()
@@ -251,320 +217,17 @@ def _init_body_detector(detection_confidence: float):
         return ("mediapipe", detector)
 
 
-# ---------------------------------------------------------------------------
-# Main extraction
-# ---------------------------------------------------------------------------
-
-def extract_frames(
-    video_path: str,
-    output_dir: str,
-    target_fps: float = 2.0,
-    blur_threshold: float = 100.0,
-    detection_confidence: float = 0.5,
-    crop_mode: str = "face",          # "face" or "body"
-    padding_pct: float = 0.2,
-    square_method: str = "center_crop",
-    output_size: int = 512,
-    output_format: str = "png",
-    dedup_threshold: int = 8,         # hamming distance for dedup
-    occlusion_threshold: int = 50,    # 0 to 100, 0 = off
-    progress_callback: Callable[[float, str], None] | None = None,
-) -> tuple[list[str], dict]:
-    """
-    Extract high-quality face/body crops from a video.
-
-    Uses GPU-accelerated ONNX detectors when available, with MediaPipe fallback.
-
-    Returns:
-        Tuple of (list of output file paths, stats dict).
-    """
-    output_format = output_format.lower()
-
-    if target_fps <= 0:
-        raise ValueError("target_fps must be greater than 0")
-    if output_size <= 0:
-        raise ValueError("output_size must be greater than 0")
-    if crop_mode not in {"face", "body"}:
-        raise ValueError("crop_mode must be 'face' or 'body'")
-    if square_method not in {"center_crop", "letterbox"}:
-        raise ValueError("square_method must be 'center_crop' or 'letterbox'")
-    if output_format not in {"png", "jpg", "jpeg"}:
-        raise ValueError("output_format must be 'png' or 'jpg'")
-
-    os.makedirs(output_dir, exist_ok=True)
-    _remove_previous_outputs(output_dir)
-
-    # --- Probe video ---
-    meta = probe_video(video_path)
-    video_fps = meta["fps"]
-    frame_count = meta["frame_count"]
-
-    # Frame interval: sample every N frames
-    frame_interval = max(1, int(round(video_fps / target_fps)))
-
-    # --- Init detectors ---
-    face_type, face_detector = _init_face_detector(detection_confidence)
-
-    body_type, body_detector = None, None
-    if crop_mode == "body" or occlusion_threshold > 0:
-        body_type, body_detector = _init_body_detector(detection_confidence)
-        
-    hand_detector = None
-    if occlusion_threshold > 0:
-        try:
-            from pipeline.hand_detector import HandDetector
-            hand_detector = HandDetector(max_hands=4)
-        except Exception as e:
-            print(f"[ClearShot] Hand detector unavailable ({e})")
-
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open video: {video_path}")
-
-    output_paths = []
-    seen_hashes = set()
-
-    stats = {
-        "total_sampled": 0,
-        "blurry_discarded": 0,
-        "low_resolution_discarded": 0,
-        "no_face_discarded": 0,
-        "duplicate_discarded": 0,
-        "occluded_discarded": 0,
-        "extracted": 0,
-        "gpu_backend": _active_backend(face_type, face_detector, body_type, body_detector),
-    }
-
-    ext = "png" if output_format == "png" else "jpg"
-    
-    import concurrent.futures
-    # Use a thread pool to write images asynchronously, unblocking the GPU/CPU inference loop
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-    write_futures: list[concurrent.futures.Future] = []
-    
-    # -----------------------------------------------------------------------
-    # Async Video Decoding
-    # -----------------------------------------------------------------------
-    frame_q = queue.Queue(maxsize=4)
-    stop_event = threading.Event()
-    
-    def frame_reader():
-        frame_idx = 0
-        try:
-            while not stop_event.is_set():
-                # OPTIMIZATION 1: Bypass decoding for frames we are going to skip
-                if frame_idx % frame_interval != 0:
-                    ret = cap.grab()
-                    if not ret:
-                        break
-                    frame_idx += 1
-                    continue
-
-                # Decode the target frame
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                # Block if the inference loop is slower than the decoding loop
-                while not stop_event.is_set():
-                    try:
-                        frame_q.put((frame_idx, frame), timeout=0.1)
-                        break
-                    except queue.Full:
-                        pass
-                frame_idx += 1
-        finally:
-            try:
-                frame_q.put(None, timeout=0.1)
-            except queue.Full:
-                pass
-            
-    reader_thread = threading.Thread(target=frame_reader, daemon=True)
-    reader_thread.start()
-
-    try:
-        while True:
-            item = frame_q.get()
-            if item is None:
-                break
-                
-            frame_idx, frame = item
-            body_detections = None
-
-            stats["total_sampled"] += 1
-
-            # Progress update
-            if progress_callback and frame_count > 0:
-                pct = min(frame_idx / frame_count, 1.0)
-                progress_callback(
-                    pct,
-                    f"Detecting faces — frame {frame_idx}/{frame_count} | Extracted: {stats['extracted']}"
-                )
-
-            # --- Face detection ---
-            face_bboxes = _detect_faces(face_type, face_detector, frame, detection_confidence)
-
-            if not face_bboxes:
-                stats["no_face_discarded"] += 1
-                frame_idx += 1
-                continue
-
-            # Process every detected face in the frame
-            for det_idx, face in enumerate(face_bboxes):
-                face_bbox = (face.x, face.y, face.w, face.h)
-                
-
-                    
-                if min(_clamped_bbox_size(frame, face_bbox)) < _min_source_face_size(frame):
-                    stats["low_resolution_discarded"] += 1
-                    continue
-
-                # --- Blur check on face region (prioritizing eyes) ---
-                blur_score = compute_blur_score_roi(frame, face_bbox, face.keypoints)
-                if blur_score < blur_threshold:
-                    stats["blurry_discarded"] += 1
-                    continue
-
-                # --- Crop ---
-                if crop_mode == "body" and body_detector is not None:
-                    cropped = _crop_body(
-                        body_type,
-                        body_detector,
-                        frame,
-                        face_bbox,
-                        padding_pct,
-                        detection_confidence,
-                    )
-                    if cropped is None:
-                        cropped = crop_face(frame, face_bbox, padding_pct * 2)
-                else:
-                    cropped = crop_face(frame, face_bbox, padding_pct)
-
-                if cropped is None or cropped.size == 0:
-                    continue
-
-                if _is_low_resolution_source(frame, face_bbox, cropped):
-                    stats["low_resolution_discarded"] += 1
-                    continue
-
-                crop_blur_score = compute_blur_score(cropped)
-                if crop_blur_score < blur_threshold * 0.35:
-                    stats["blurry_discarded"] += 1
-                    continue
-
-                # --- Square + resize (Do this before dedup to stabilize aspect ratio) ---
-                squared = make_square(cropped, method=square_method)
-                final = resize_square(squared, size=output_size)
-
-                # --- Dedup ---
-                if HAS_IMAGEHASH and dedup_threshold > 0:
-                    # Compute perceptual hash on the stabilized 1:1 image
-                    phash = _perceptual_hash(final)
-                    if phash is not None:
-                        is_dup = any(
-                            (phash - h) < dedup_threshold for h in seen_hashes
-                        )
-                        if is_dup:
-                            stats["duplicate_discarded"] += 1
-                            continue
-                else:
-                    phash = None
-                            
-                # --- Final Occulsion Checks ---
-                # We only run these heavy checks on faces that survived all other filters
-                if occlusion_threshold > 0:
-                    is_occluded = False
-                    
-                    # 1. Body Pose Check (Shoulders, Elbows, Wrists)
-                    if body_detector is not None:
-                        # Lazy-evaluate body poses once per frame
-                        if body_detections is None:
-                            body_detections = body_detector.detect(frame)
-                            
-                        # COCO: 5,6(shoulders), 7,8(elbows), 9,10(wrists)
-                        occlusion_kps = [5, 6, 7, 8, 9, 10]
-                        fx, fy, fw, fh = face_bbox
-                        
-                        for body in body_detections:
-                            for kp_idx in occlusion_kps:
-                                if kp_idx < len(body.keypoints):
-                                    kp = body.keypoints[kp_idx]
-                                    if kp.confidence > 0.4:
-                                        if fx <= kp.x <= fx + fw and fy <= kp.y <= fy + fh:
-                                            is_occluded = True
-                                            break
-                            if is_occluded: break
-
-                    # 2. Precise Hand Check (Fingers)
-                    if not is_occluded and hand_detector is not None:
-                        hand_detections = hand_detector.detect(cropped)
-                        if hand_detections:
-                            is_occluded = True
-
-                    if is_occluded:
-                        stats["occluded_discarded"] += 1
-                        continue
-                        
-                # --- Dedup (Hash Add) ---
-                if HAS_IMAGEHASH and dedup_threshold > 0 and phash is not None:
-                    seen_hashes.add(phash)
-
-
-                # --- Save ---
-                # OPTIMIZATION 2: Async I/O for saving images
-                filename = f"frame_{frame_idx:06d}_face_{det_idx}.{ext}"
-                out_path = os.path.join(output_dir, filename)
-                write_futures.append(executor.submit(_write_image, out_path, final))
-                output_paths.append(out_path)
-                stats["extracted"] += 1
-
-            frame_idx += 1
-
-        for future in write_futures:
-            future.result()
-
-    finally:
-        stop_event.set()  # Signal reader_thread to stop
-        
-        stats["gpu_backend"] = _active_backend(face_type, face_detector, body_type, body_detector)
-        cap.release()
-        _close_detector(face_type, face_detector)
-        if body_detector is not None:
-            _close_detector(body_type, body_detector)
-        if hand_detector is not None:
-            hand_detector.close()
-        
-        # Ensure all writes complete before returning
-        executor.shutdown(wait=True)
-
-    # Final progress
-    if progress_callback:
-        progress_callback(1.0, f"Done! Extracted {stats['extracted']} images.")
-
-    return output_paths, stats
-
-
-# ---------------------------------------------------------------------------
-# Detector abstraction helpers
-# ---------------------------------------------------------------------------
-
 def _detect_faces(
     detector_type: str,
     detector,
     frame: np.ndarray,
     confidence: float,
 ) -> list[FaceDetection]:
-    """
-    Detect faces using either ONNX or MediaPipe detector.
-
-    Returns list of FaceDetection objects.
-    """
     fh, fw = frame.shape[:2]
 
     if detector_type == "onnx":
         return detector.detect(frame, confidence=confidence)
     else:
-        # MediaPipe
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         face_results = detector.process(rgb)
         if not face_results.detections:
@@ -591,22 +254,15 @@ def _crop_body(
     padding_pct: float,
     detection_confidence: float,
 ) -> np.ndarray | None:
-    """
-    Crop body region using either ONNX or MediaPipe detector.
-    """
     if detector_type == "onnx":
         bodies = detector.detect(frame, confidence=detection_confidence)
         if bodies:
-            # Find the body detection closest to the face
             face_cx = face_bbox[0] + face_bbox[2] / 2
             face_cy = face_bbox[1] + face_bbox[3] / 2
-
             best_body = min(bodies, key=lambda b: (
                 (b.x + b.w / 2 - face_cx) ** 2 +
                 (b.y + b.h / 2 - face_cy) ** 2
             ))
-
-            # Use keypoints for tighter body crop
             return crop_body_from_keypoints(
                 frame,
                 [(kp.x, kp.y, kp.confidence) for kp in best_body.keypoints],
@@ -614,7 +270,6 @@ def _crop_body(
             )
         return None
     else:
-        # MediaPipe Pose
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         pose_results = detector.process(rgb)
         if pose_results.pose_landmarks and pose_results.pose_landmarks.landmark:
@@ -632,7 +287,6 @@ def _active_backend(
     body_type: str | None,
     body_detector,
 ) -> str:
-    """Return the detector backend currently in use, including runtime fallback."""
     backends = []
     if face_type == "onnx":
         backends.append(getattr(face_detector, "backend", "cpu"))
@@ -655,8 +309,351 @@ def _active_backend(
 
 
 def _close_detector(detector_type: str, detector):
-    """Close a detector safely."""
     try:
         detector.close()
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# OOP Extraction Pipeline
+# ---------------------------------------------------------------------------
+
+class VideoExtractor:
+    """
+    Object-oriented extraction pipeline that safely manages detector state,
+    background threads, and async I/O.
+    """
+    
+    def __init__(
+        self,
+        target_fps: float = 2.0,
+        blur_threshold: float = 100.0,
+        detection_confidence: float = 0.5,
+        crop_mode: str = "face",
+        padding_pct: float = 0.2,
+        square_method: str = "center_crop",
+        output_size: int = 512,
+        output_format: str = "png",
+        dedup_threshold: int = 8,
+        occlusion_threshold: int = 50,
+    ):
+        if target_fps <= 0:
+            raise ValueError("target_fps must be greater than 0")
+        if output_size <= 0:
+            raise ValueError("output_size must be greater than 0")
+        if crop_mode not in {"face", "body"}:
+            raise ValueError("crop_mode must be 'face' or 'body'")
+        if square_method not in {"center_crop", "letterbox"}:
+            raise ValueError("square_method must be 'center_crop' or 'letterbox'")
+        if output_format.lower() not in {"png", "jpg", "jpeg"}:
+            raise ValueError("output_format must be 'png' or 'jpg'")
+
+        self.target_fps = target_fps
+        self.blur_threshold = blur_threshold
+        self.detection_confidence = detection_confidence
+        self.crop_mode = crop_mode
+        self.padding_pct = padding_pct
+        self.square_method = square_method
+        self.output_size = output_size
+        self.output_format = output_format.lower()
+        self.dedup_threshold = dedup_threshold
+        self.occlusion_threshold = occlusion_threshold
+        
+        # State
+        self.face_type = None
+        self.face_detector = None
+        self.body_type = None
+        self.body_detector = None
+        self.hand_detector = None
+        
+        self.seen_hashes = set()
+        self.stats = {
+            "total_sampled": 0,
+            "blurry_discarded": 0,
+            "low_resolution_discarded": 0,
+            "no_face_discarded": 0,
+            "duplicate_discarded": 0,
+            "occluded_discarded": 0,
+            "extracted": 0,
+            "gpu_backend": "cpu",
+        }
+        
+        self.executor = None
+        self.write_futures = []
+        self.stop_event = threading.Event()
+
+    def __enter__(self):
+        """Initialize detectors and thread pools."""
+        self.face_type, self.face_detector = _init_face_detector(self.detection_confidence)
+        
+        if self.crop_mode == "body" or self.occlusion_threshold > 0:
+            self.body_type, self.body_detector = _init_body_detector(self.detection_confidence)
+            
+        if self.occlusion_threshold > 0:
+            try:
+                from pipeline.hand_detector import HandDetector
+                self.hand_detector = HandDetector(max_hands=4)
+            except Exception as e:
+                print(f"[ClearShot] Hand detector unavailable ({e})")
+                
+        self.stats["gpu_backend"] = _active_backend(
+            self.face_type, self.face_detector, self.body_type, self.body_detector
+        )
+        
+        import concurrent.futures
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Safely clean up threads and C++ model resources."""
+        self.stop_event.set()
+        
+        if self.face_detector:
+            _close_detector(self.face_type, self.face_detector)
+        if self.body_detector:
+            _close_detector(self.body_type, self.body_detector)
+        if self.hand_detector:
+            try:
+                self.hand_detector.close()
+            except Exception:
+                pass
+                
+        if self.executor:
+            self.executor.shutdown(wait=True)
+
+    def _check_dedup(self, image: np.ndarray) -> tuple[bool, object | None]:
+        """Returns (is_duplicate, perceptual_hash)."""
+        if not HAS_IMAGEHASH or self.dedup_threshold <= 0:
+            return False, None
+            
+        phash = _perceptual_hash(image)
+        if phash is None:
+            return False, None
+            
+        is_dup = any((phash - h) < self.dedup_threshold for h in self.seen_hashes)
+        return is_dup, phash
+
+    def _check_occlusion(self, frame: np.ndarray, face_bbox: tuple[int, int, int, int], cropped: np.ndarray, body_detections: list | None) -> tuple[bool, list | None]:
+        """Returns (is_occluded, updated_body_detections)."""
+        if self.occlusion_threshold <= 0:
+            return False, body_detections
+            
+        is_occluded = False
+        
+        # 1. Body Pose Check (Shoulders, Elbows, Wrists)
+        if self.body_detector is not None:
+            if body_detections is None:
+                body_detections = self.body_detector.detect(frame)
+                
+            occlusion_kps = [5, 6, 7, 8, 9, 10]
+            fx, fy, fw, fh = face_bbox
+            
+            for body in body_detections:
+                for kp_idx in occlusion_kps:
+                    if kp_idx < len(body.keypoints):
+                        kp = body.keypoints[kp_idx]
+                        if kp.confidence > 0.4:
+                            if fx <= kp.x <= fx + fw and fy <= kp.y <= fy + fh:
+                                is_occluded = True
+                                break
+                if is_occluded: break
+                
+        # 2. Precise Hand Check (Fingers)
+        if not is_occluded and self.hand_detector is not None:
+            hand_detections = self.hand_detector.detect(cropped)
+            if hand_detections:
+                is_occluded = True
+                
+        return is_occluded, body_detections
+
+    def _process_face(
+        self, 
+        frame: np.ndarray, 
+        face_bbox: tuple[int, int, int, int], 
+        face_keypoints, 
+        body_detections: list | None,
+        frame_idx: int,
+        det_idx: int,
+        output_dir: str,
+        ext: str
+    ) -> list | None:
+        """Processes a single detected face, applying all filters and saving it if valid."""
+        if min(_clamped_bbox_size(frame, face_bbox)) < _min_source_face_size(frame):
+            self.stats["low_resolution_discarded"] += 1
+            return body_detections
+            
+        blur_score = compute_blur_score_roi(frame, face_bbox, face_keypoints)
+        if blur_score < self.blur_threshold:
+            self.stats["blurry_discarded"] += 1
+            return body_detections
+            
+        if self.crop_mode == "body" and self.body_detector is not None:
+            cropped = _crop_body(self.body_type, self.body_detector, frame, face_bbox, self.padding_pct, self.detection_confidence)
+            if cropped is None:
+                cropped = crop_face(frame, face_bbox, self.padding_pct * 2)
+        else:
+            cropped = crop_face(frame, face_bbox, self.padding_pct)
+            
+        if cropped is None or cropped.size == 0:
+            return body_detections
+            
+        if _is_low_resolution_source(frame, face_bbox, cropped):
+            self.stats["low_resolution_discarded"] += 1
+            return body_detections
+            
+        crop_blur_score = compute_blur_score(cropped)
+        if crop_blur_score < self.blur_threshold * 0.35:
+            self.stats["blurry_discarded"] += 1
+            return body_detections
+            
+        # Square + resize (done before dedup to stabilize aspect ratio)
+        squared = make_square(cropped, method=self.square_method)
+        final = resize_square(squared, size=self.output_size)
+        
+        # Dedup Check
+        is_dup, phash = self._check_dedup(final)
+        if is_dup:
+            self.stats["duplicate_discarded"] += 1
+            return body_detections
+            
+        # Final Occlusion Check
+        is_occluded, body_detections = self._check_occlusion(frame, face_bbox, cropped, body_detections)
+        if is_occluded:
+            self.stats["occluded_discarded"] += 1
+            return body_detections
+            
+        # Add to seen hashes ONLY if it survives all filters
+        if phash is not None:
+            self.seen_hashes.add(phash)
+            
+        # Save Async
+        filename = f"frame_{frame_idx:06d}_face_{det_idx}.{ext}"
+        out_path = os.path.join(output_dir, filename)
+        
+        future = self.executor.submit(_write_image, out_path, final)
+        self.write_futures.append((out_path, future))
+        self.stats["extracted"] += 1
+        
+        return body_detections
+
+    def extract(self, video_path: str, output_dir: str, progress_callback: Callable[[float, str], None] | None = None) -> tuple[list[str], dict]:
+        """
+        Orchestrator: runs async video decoding and evaluates frames.
+        """
+        os.makedirs(output_dir, exist_ok=True)
+        _remove_previous_outputs(output_dir)
+        
+        meta = probe_video(video_path)
+        video_fps = meta["fps"]
+        frame_count = meta["frame_count"]
+        frame_interval = max(1, int(round(video_fps / self.target_fps)))
+        
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise RuntimeError(f"Cannot open video: {video_path}")
+            
+        frame_q = queue.Queue(maxsize=4)
+        
+        def frame_reader():
+            frame_idx = 0
+            try:
+                while not self.stop_event.is_set():
+                    if frame_idx % frame_interval != 0:
+                        ret = cap.grab()
+                        if not ret: break
+                        frame_idx += 1
+                        continue
+                        
+                    ret, frame = cap.read()
+                    if not ret: break
+                    
+                    while not self.stop_event.is_set():
+                        try:
+                            frame_q.put((frame_idx, frame), timeout=0.1)
+                            break
+                        except queue.Full:
+                            pass
+                    frame_idx += 1
+            finally:
+                try:
+                    frame_q.put(None, timeout=0.1)
+                except queue.Full:
+                    pass
+                    
+        reader_thread = threading.Thread(target=frame_reader, daemon=True)
+        reader_thread.start()
+        
+        ext = "png" if self.output_format == "png" else "jpg"
+        
+        try:
+            while True:
+                item = frame_q.get()
+                if item is None:
+                    break
+                    
+                frame_idx, frame = item
+                self.stats["total_sampled"] += 1
+                
+                if progress_callback and frame_count > 0:
+                    pct = min(frame_idx / frame_count, 1.0)
+                    progress_callback(pct, f"Detecting faces — frame {frame_idx}/{frame_count} | Extracted: {self.stats['extracted']}")
+                    
+                face_bboxes = _detect_faces(self.face_type, self.face_detector, frame, self.detection_confidence)
+                
+                if not face_bboxes:
+                    self.stats["no_face_discarded"] += 1
+                    continue
+                    
+                body_detections = None
+                for det_idx, face in enumerate(face_bboxes):
+                    face_bbox = (face.x, face.y, face.w, face.h)
+                    body_detections = self._process_face(
+                        frame, face_bbox, face.keypoints, body_detections, frame_idx, det_idx, output_dir, ext
+                    )
+                    
+        finally:
+            cap.release()
+            
+        output_paths = []
+        for out_path, future in self.write_futures:
+            future.result()
+            output_paths.append(out_path)
+            
+        if progress_callback:
+            progress_callback(1.0, f"Done! Extracted {self.stats['extracted']} images.")
+            
+        return output_paths, self.stats
+
+
+def extract_frames(
+    video_path: str,
+    output_dir: str,
+    target_fps: float = 2.0,
+    blur_threshold: float = 100.0,
+    detection_confidence: float = 0.5,
+    crop_mode: str = "face",          # "face" or "body"
+    padding_pct: float = 0.2,
+    square_method: str = "center_crop",
+    output_size: int = 512,
+    output_format: str = "png",
+    dedup_threshold: int = 8,         # hamming distance for dedup
+    occlusion_threshold: int = 50,    # 0 to 100, 0 = off
+    progress_callback: Callable[[float, str], None] | None = None,
+) -> tuple[list[str], dict]:
+    """
+    Backwards compatibility wrapper for VideoExtractor.
+    """
+    with VideoExtractor(
+        target_fps=target_fps,
+        blur_threshold=blur_threshold,
+        detection_confidence=detection_confidence,
+        crop_mode=crop_mode,
+        padding_pct=padding_pct,
+        square_method=square_method,
+        output_size=output_size,
+        output_format=output_format,
+        dedup_threshold=dedup_threshold,
+        occlusion_threshold=occlusion_threshold,
+    ) as extractor:
+        return extractor.extract(video_path, output_dir, progress_callback)
