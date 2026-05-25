@@ -98,7 +98,7 @@ export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15,
         <label className="setting-label">
           Occlusion Strictness
           <span className="setting-value">
-            {settings.occlusion_threshold === 0 ? 'Off' : settings.occlusion_threshold}
+            {settings.occlusion_threshold === 0 ? 'Off' : `${settings.occlusion_threshold}%`}
           </span>
         </label>
         <input
@@ -193,15 +193,15 @@ export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15,
         <label className="setting-label">
           De-duplication
           <span className="setting-value">
-            {settings.dedup_threshold === 0 ? 'Off' : settings.dedup_threshold}
+            {settings.dedup_threshold === 0 ? 'Off' : `${Math.round((settings.dedup_threshold / 48) * 100)}%`}
           </span>
         </label>
         <input
           type="range"
           className="setting-slider"
-          min={0} max={48} step={1}
-          value={settings.dedup_threshold}
-          onChange={(e) => onChange({ dedup_threshold: Number(e.target.value) })}
+          min={0} max={100} step={1}
+          value={Math.round((settings.dedup_threshold / 48) * 100)}
+          onChange={(e) => onChange({ dedup_threshold: Math.round((Number(e.target.value) / 100) * 48) })}
           disabled={disabled}
         />
         <div className="setting-range-labels">
