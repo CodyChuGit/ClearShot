@@ -424,79 +424,6 @@ class VideoExtractor:
         is_dup = any((phash - h) < self.dedup_threshold for h in self.seen_hashes)
         return is_dup, phash
 
-    def _compute_ds_occlusion_score(self, frame, face_keypoints) -> float:
-        import cv2
-        import numpy as np
-        
-        if not face_keypoints or len(face_keypoints) != 5:
-            return 0.0
-            
-        # Keypoints: 0=LEye, 1=REye, 2=Nose, 3=LMouth, 4=RMouth
-        mx1, my1 = face_keypoints[3]
-        mx2, my2 = face_keypoints[4]
-        nx, ny = face_keypoints[2]
-        
-        # 1. Extract Mouth ROI
-        cx, cy = (mx1 + mx2) / 2, (my1 + my2) / 2
-        mw = max(abs(mx2 - mx1), 10)
-        mh = mw * 1.5
-        
-        mx1_c, my1_c = max(0, int(cx - mw)), max(0, int(cy - mh/2))
-        mx2_c, my2_c = min(frame.shape[1], int(cx + mw)), min(frame.shape[0], int(cy + mh/2))
-        mouth_crop = frame[my1_c:my2_c, mx1_c:mx2_c]
-        
-        # 2. Extract Reference Skin ROI (Upper Cheeks)
-        ref_x1 = int(min(face_keypoints[0][0], face_keypoints[1][0]))
-        ref_y1 = int(min(face_keypoints[0][1], face_keypoints[1][1]))
-        ref_x2 = int(max(face_keypoints[0][0], face_keypoints[1][0]))
-        ref_y2 = int(ny)
-        
-        ref_x1, ref_y1 = max(0, ref_x1), max(0, ref_y1)
-        ref_x2, ref_y2 = min(frame.shape[1], ref_x2), min(frame.shape[0], ref_y2)
-        ref_crop = frame[ref_y1:ref_y2, ref_x1:ref_x2]
-        
-        if mouth_crop.size == 0 or ref_crop.size == 0:
-            return 0.0
-            
-        # -- Feature 1: Chrominance Anomaly --
-        mouth_ycb = cv2.cvtColor(mouth_crop, cv2.COLOR_BGR2YCrCb)
-        ref_ycb = cv2.cvtColor(ref_crop, cv2.COLOR_BGR2YCrCb)
-        
-        ref_cr, ref_cb = ref_ycb[:,:,1], ref_ycb[:,:,2]
-        mouth_cr, mouth_cb = mouth_ycb[:,:,1], mouth_ycb[:,:,2]
-        
-        mean_cr, std_cr = np.mean(ref_cr), np.std(ref_cr)
-        mean_cb, std_cb = np.mean(ref_cb), np.std(ref_cb)
-        
-        z_cr = np.abs((mouth_cr - mean_cr) / (std_cr + 1e-6))
-        z_cb = np.abs((mouth_cb - mean_cb) / (std_cb + 1e-6))
-        
-        anomaly_mask = (z_cr > 2.5) | (z_cb > 2.5)
-        color_anomaly = np.sum(anomaly_mask) / anomaly_mask.size
-        # Normalize color anomaly (0.0 to 1.0, cap at 0.6 = 1.0 score)
-        f1_score = min(color_anomaly / 0.6, 1.0)
-        
-        # -- Feature 2: Structural Edge Density --
-        gray_mouth = cv2.cvtColor(mouth_crop, cv2.COLOR_BGR2GRAY)
-        gx = cv2.Sobel(gray_mouth, cv2.CV_64F, 1, 0, ksize=3)
-        gy = cv2.Sobel(gray_mouth, cv2.CV_64F, 0, 1, ksize=3)
-        mag, _ = cv2.cartToPolar(gx, gy, angleInDegrees=True)
-        mag = mag / (np.max(mag) + 1e-6)
-        edge_density = np.sum(mag > 0.5) / mag.size
-        # Normalize edge density (0.0 to 1.0, cap at 0.05 = 1.0 score)
-        f2_score = min(edge_density / 0.05, 1.0)
-        
-        # -- Feature 3: Laplacian Variance --
-        laplacian_var = cv2.Laplacian(gray_mouth, cv2.CV_64F).var()
-        # Normalize Laplacian (0.0 to 1.0, cap at 300 = 1.0 score, subtract base 40)
-        f3_score = min(max(laplacian_var - 40, 0) / 260.0, 1.0)
-        
-        # -- Ensemble Scoring --
-        # We average the three features to get a highly robust multi-modal occlusion index.
-        # A normal face usually scores around 0.1 - 0.2.
-        # A microphone usually scores around 0.6 - 0.9.
-        ensemble_score = (f1_score + f2_score + f3_score) / 3.0
-        return ensemble_score
         
     def _check_occlusion(
         self, 
@@ -537,18 +464,36 @@ class VideoExtractor:
                                 break
                 if is_occluded: break
                 
-        # 2. Data Science Multi-Variate Ensemble Check
-        if not is_occluded:
-            ds_score = self._compute_ds_occlusion_score(frame, face_keypoints)
+        # 2. Scale-Invariant Laplacian Texture Check
+        # Instead of a brittle multi-feature ensemble, we use a single, highly-normalized texture metric.
+        if not is_occluded and face_keypoints is not None and len(face_keypoints) == 5:
+            import cv2
+            import numpy as np
+            mx1, my1 = face_keypoints[3]
+            mx2, my2 = face_keypoints[4]
             
-            # Map user's occlusion_threshold (1-100) to an allowed DS score.
-            # Normal face scores ~0.15 - 0.25. Occluded scores > 0.45.
-            # At 50 (default): allowed = 0.375
-            # At 100 (strictest): allowed = 0.0
-            allowed_score = max(0.0, 1.0 - (self.occlusion_threshold / 80.0))
+            cx, cy = (mx1 + mx2) / 2, (my1 + my2) / 2
+            mw = max(abs(mx2 - mx1), 10)
+            mh = mw * 1.5
             
-            if ds_score > allowed_score:
-                is_occluded = True
+            x1, y1 = max(0, int(cx - mw)), max(0, int(cy - mh/2))
+            x2, y2 = min(frame.shape[1], int(cx + mw)), min(frame.shape[0], int(cy + mh/2))
+            
+            mouth_crop = frame[y1:y2, x1:x2]
+            if mouth_crop.size > 0:
+                gray = cv2.cvtColor(mouth_crop, cv2.COLOR_BGR2GRAY)
+                # Resize to exactly 64x64 to make the Laplacian perfectly scale-invariant
+                resized = cv2.resize(gray, (64, 64))
+                lap_var = cv2.Laplacian(resized, cv2.CV_64F).var()
+                
+                # Normal face = ~150. Microphone/hand = > 700.
+                # If threshold is 50 (default), allowed = 400.
+                # If threshold is 100 (strictest), allowed = 200.
+                # If threshold is 10 (relaxed), allowed = 800.
+                allowed_var = 1000.0 - (self.occlusion_threshold * 8.0)
+                
+                if lap_var > allowed_var:
+                    is_occluded = True
                     
         return is_occluded, body_detections
 
