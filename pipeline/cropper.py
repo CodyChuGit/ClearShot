@@ -212,4 +212,8 @@ def make_square(
 
 def resize_square(image: np.ndarray, size: int = 512) -> np.ndarray:
     """Resize a (presumably square) image to size×size."""
-    return cv2.resize(image, (size, size), interpolation=cv2.INTER_LANCZOS4)
+    h = image.shape[0]
+    # INTER_AREA is mathematically correct and faster for downscaling.
+    # INTER_LINEAR is much faster than Lanczos for upscaling with acceptable quality.
+    interpolation = cv2.INTER_AREA if size < h else cv2.INTER_LINEAR
+    return cv2.resize(image, (size, size), interpolation=interpolation)
