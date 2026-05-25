@@ -121,7 +121,7 @@ def _perceptual_hash(image: np.ndarray) -> object | None:
     if not HAS_IMAGEHASH:
         return None
     pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    return imagehash.phash(pil, hash_size=8)
+    return imagehash.dhash(pil, hash_size=8)
 
 
 def _remove_previous_outputs(output_dir: str) -> None:
