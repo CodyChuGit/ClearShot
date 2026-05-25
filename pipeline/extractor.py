@@ -335,7 +335,7 @@ class VideoExtractor:
         square_method: str = "center_crop",
         output_size: int = 512,
         output_format: str = "png",
-        dedup_threshold: int = 8,
+        dedup_threshold: int = 12,
         occlusion_threshold: int = 50,
     ):
         if target_fps <= 0:
@@ -680,7 +680,7 @@ def extract_frames(
     square_method: str = "center_crop",
     output_size: int = 512,
     output_format: str = "png",
-    dedup_threshold: int = 8,         # hamming distance for dedup
+    dedup_threshold: int = 12,         # hamming distance for dedup
     occlusion_threshold: int = 50,    # 0 to 100, 0 = off
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> tuple[list[str], dict]:

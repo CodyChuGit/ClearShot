@@ -92,7 +92,7 @@ export const DEFAULT_SETTINGS: ExtractionSettings = {
   square_method: 'center_crop',
   output_size: 512,
   output_format: 'png',
-  dedup_threshold: 8,
+  dedup_threshold: 12,
   occlusion_threshold: 50,
   download_resolution: 'max',
 };
