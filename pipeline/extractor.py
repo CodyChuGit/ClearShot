@@ -121,7 +121,7 @@ def _perceptual_hash(image: np.ndarray) -> object | None:
     if not HAS_IMAGEHASH:
         return None
     pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    return imagehash.dhash(pil, hash_size=8)
+    return imagehash.phash(pil, hash_size=8)
 
 
 def _remove_previous_outputs(output_dir: str) -> None:
@@ -514,7 +514,7 @@ class VideoExtractor:
             self.stats["low_resolution_discarded"] += 1
             return body_detections
             
-        blur_score = compute_blur_score_roi(frame, face_bbox)
+        blur_score = compute_blur_score_roi(frame, face_bbox, face_keypoints)
         if blur_score < self.blur_threshold:
             self.stats["blurry_discarded"] += 1
             return body_detections
