@@ -199,7 +199,7 @@ export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15,
         <input
           type="range"
           className="setting-slider"
-          min={0} max={32} step={1}
+          min={0} max={48} step={1}
           value={settings.dedup_threshold}
           onChange={(e) => onChange({ dedup_threshold: Number(e.target.value) })}
           disabled={disabled}

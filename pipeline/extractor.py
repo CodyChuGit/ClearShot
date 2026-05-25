@@ -335,7 +335,7 @@ class VideoExtractor:
         square_method: str = "center_crop",
         output_size: int = 512,
         output_format: str = "png",
-        dedup_threshold: int = 12,
+        dedup_threshold: int = 18,
         occlusion_threshold: int = 50,
     ):
         if target_fps <= 0:
@@ -448,8 +448,8 @@ class VideoExtractor:
         is_occluded = False
         fx, fy, fw, fh = face_bbox
         
-        # Scale factor: 50 -> 1.0, 100 -> 2.0, 10 -> 0.2
-        scale_factor = self.occlusion_threshold / 50.0
+        # Scale factor: 50 -> 1.5, 100 -> 3.0, 10 -> 0.3 (increased base sensitivity by 50%)
+        scale_factor = (self.occlusion_threshold / 50.0) * 1.5
         
         # 1. Body Pose Check (Shoulders, Elbows, Wrists)
         if self.body_detector is not None:
@@ -680,7 +680,7 @@ def extract_frames(
     square_method: str = "center_crop",
     output_size: int = 512,
     output_format: str = "png",
-    dedup_threshold: int = 12,         # hamming distance for dedup
+    dedup_threshold: int = 18,         # hamming distance for dedup
     occlusion_threshold: int = 50,    # 0 to 100, 0 = off
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> tuple[list[str], dict]:
