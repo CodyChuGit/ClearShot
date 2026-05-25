@@ -152,98 +152,30 @@ def _write_image(path: str, image: np.ndarray) -> None:
 
 
 
-def compute_occlusion_score(img_bgr: np.ndarray, kps: list[tuple[float, float]] | None) -> float:
+def _is_face_occluded_by_hands(face_bbox: tuple[int, int, int, int], hand_detections: list, frame_shape: tuple[int, int]) -> bool:
     """
-    Computes a 0 to 100 score based on Laplacian texture variance of facial regions.
-    Highly optimized: Extracts a localized bounding box around the keypoints before computing the Laplacian.
+    Checks if any hand landmarks fall inside the face bounding box.
     """
-    if not kps or len(kps) < 5: return 0.0
+    fx, fy, fw, fh = face_bbox
+    fh_img, fw_img = frame_shape[:2]
     
-    le, re, nose, lm, rm = kps
-    eye_dist = np.linalg.norm(np.array(le) - np.array(re))
-    if eye_dist < 10: return 0.0
+    # We add a slight margin to the face bbox (10%) to catch hands hovering right over the jaw
+    margin_x = fw * 0.1
+    margin_y = fh * 0.1
     
-    # 1. Compute local crop bounds based on keypoints
-    kps_arr = np.array(kps)
-    x_min, y_min = np.min(kps_arr, axis=0)
-    x_max, y_max = np.max(kps_arr, axis=0)
+    x1 = fx - margin_x
+    y1 = fy - margin_y
+    x2 = fx + fw + margin_x
+    y2 = fy + fh + margin_y
     
-    pad = int(eye_dist * 1.5)
-    fh, fw = img_bgr.shape[:2]
-    
-    c_x1 = max(0, int(x_min - pad))
-    c_y1 = max(0, int(y_min - pad))
-    c_x2 = min(fw, int(x_max + pad))
-    c_y2 = min(fh, int(y_max + pad))
-    
-    face_crop = img_bgr[c_y1:c_y2, c_x1:c_x2]
-    if face_crop.size == 0: return 0.0
-    
-    # 2. Compute full face-crop variance
-    gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
-    laplacian_crop = cv2.Laplacian(gray_crop, cv2.CV_64F)
-    var_f = np.var(laplacian_crop)
-    if var_f < 1: return 0.0
-    
-    # 3. Helper to get variance of local patches
-    def get_var(center, size_r):
-        # Offset center by crop coordinates
-        x = int(center[0]) - c_x1
-        y = int(center[1]) - c_y1
-        y1, y2 = max(0, y-size_r), min(laplacian_crop.shape[0], y+size_r)
-        x1, x2 = max(0, x-size_r), min(laplacian_crop.shape[1], x+size_r)
-        patch = laplacian_crop[y1:y2, x1:x2]
-        if patch.size == 0: return 0.0
-        return np.var(patch)
-        
-    size = int(eye_dist * 0.4)
-    mouth_center = ((lm[0]+rm[0])/2, (lm[1]+rm[1])/2)
-    eye_center = ((le[0]+re[0])/2, (le[1]+re[1])/2)
-    
-    var_m = get_var(mouth_center, size)
-    var_n = get_var(nose, size)
-    var_e1 = get_var(le, size)
-    var_e2 = get_var(re, size)
-    
-    # Use the mean variance of the face patches as the baseline,
-    # rather than the padded crop which might include textured background.
-    baseline_var = max(1.0, float(np.mean([var_n, var_e1, var_e2, var_m])))
-    
-    # Ratios against the internal face baseline
-    r_m = var_m / baseline_var
-    r_n = var_n / baseline_var
-    r_e1 = var_e1 / baseline_var
-    r_e2 = var_e2 / baseline_var
-    
-    def calc_penalty(r):
-        if r < 0.2:
-            # extremely smooth relative to the face (e.g. solid hand or flat mask)
-            return ((0.2 - r) / 0.2) * 4.0 # max penalty 4.0
-        elif r > 2.5:
-            # extremely textured relative to the face (e.g. microphone grid or textured mask)
-            return min(4.0, (r - 2.5) * 1.0)
-        return 0.0
-        
-    pen_m = calc_penalty(r_m)
-    pen_n = calc_penalty(r_n)
-    pen_e1 = calc_penalty(r_e1)
-    pen_e2 = calc_penalty(r_e2)
-    
-    # Asymmetry penalty: Eyes should have roughly similar texture variance.
-    # If a hand or hair covers one eye, this spikes.
-    eye_asym = abs(var_e1 - var_e2) / max(1.0, (var_e1 + var_e2) / 2)
-    asym_penalty = max(0.0, (eye_asym - 0.5) * 3.0)
-    
-    # Keypoint Integrity: Objects covering the lower face heavily distort the SCRFD mouth prediction.
-    face_length = np.linalg.norm(np.array(eye_center) - np.array(mouth_center))
-    len_ratio = face_length / max(1.0, eye_dist)
-    # Normal ratio is ~1.35. We square the deviation to exponentially punish structural squishing.
-    len_penalty = (abs(len_ratio - 1.35) ** 2) * 20.0
-    
-    total_penalty = pen_m + pen_n + pen_e1 + pen_e2 + asym_penalty + len_penalty
-    
-    # scale so normal faces are ~80-100, occluded are < 40
-    return max(0.0, 100.0 - (total_penalty * 20.0))
+    for hand in hand_detections:
+        for (lx_norm, ly_norm) in hand.landmarks:
+            px = lx_norm * fw_img
+            py = ly_norm * fh_img
+            if x1 <= px <= x2 and y1 <= py <= y2:
+                return True
+                
+    return False
 
 def _min_source_face_size(frame: np.ndarray) -> int:
     """
@@ -399,6 +331,14 @@ def extract_frames(
     body_type, body_detector = None, None
     if crop_mode == "body":
         body_type, body_detector = _init_body_detector(detection_confidence)
+        
+    hand_detector = None
+    if occlusion_threshold > 0:
+        try:
+            from pipeline.hand_detector import HandDetector
+            hand_detector = HandDetector(max_hands=4)
+        except Exception as e:
+            print(f"[ClearShot] Hand detector unavailable ({e})")
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -482,13 +422,17 @@ def extract_frames(
                 frame_idx += 1
                 continue
 
+            # Run hand tracking once per frame if occlusion check is enabled and faces are found
+            hand_detections = []
+            if hand_detector is not None:
+                hand_detections = hand_detector.detect(frame)
+
             # Process every detected face in the frame
             for det_idx, face in enumerate(face_bboxes):
                 face_bbox = (face.x, face.y, face.w, face.h)
                 
-                if occlusion_threshold > 0:
-                    occ_score = compute_occlusion_score(frame, face.keypoints)
-                    if occ_score < occlusion_threshold:
+                if hand_detector is not None:
+                    if _is_face_occluded_by_hands(face_bbox, hand_detections, frame.shape):
                         stats["occluded_discarded"] += 1
                         continue
                     
