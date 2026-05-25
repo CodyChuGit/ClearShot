@@ -85,7 +85,7 @@ export interface GpuInfo {
 
 export const DEFAULT_SETTINGS: ExtractionSettings = {
   target_fps: 2,
-  blur_threshold: 100,
+  blur_threshold: 50,
   detection_confidence: 0.5,
   crop_mode: 'face',
   padding_pct: 20,

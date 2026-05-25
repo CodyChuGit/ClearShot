@@ -8,7 +8,7 @@ interface Props {
   videoMeta?: VideoMeta | null;
 }
 
-const MAX_SHARPNESS = 250;
+const MAX_SHARPNESS = 100;
 const MIN_DETECTION_CONFIDENCE = 0.3;
 const MAX_DETECTION_CONFIDENCE = 0.8;
 
@@ -45,12 +45,12 @@ export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15,
       <div className="setting-group">
         <label className="setting-label">
           Minimum Sharpness
-          <span className="setting-value">{settings.blur_threshold}</span>
+          <span className="setting-value">{settings.blur_threshold}%</span>
         </label>
         <input
           type="range"
           className="setting-slider"
-          min={20} max={MAX_SHARPNESS} step={10}
+          min={0} max={MAX_SHARPNESS} step={5}
           value={Math.min(settings.blur_threshold, MAX_SHARPNESS)}
           onChange={(e) => onChange({ blur_threshold: Number(e.target.value) })}
           disabled={disabled}

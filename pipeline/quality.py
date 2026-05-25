@@ -8,20 +8,17 @@ import cv2
 import numpy as np
 
 
-def compute_blur_score(image: np.ndarray) -> float:
+def compute_blur_score(image: np.ndarray, target_size: int = 128) -> float:
     """
-    Compute a sharpness score for an image region using Laplacian variance.
+    Compute a scale-invariant sharpness score for an image region.
 
-    Higher values = sharper image. Typical thresholds:
-      - < 50:  very blurry
-      - 50-100: somewhat blurry
-      - > 100: acceptably sharp
-
+    Higher values = sharper image.
     Args:
         image: BGR or grayscale numpy array.
+        target_size: Square dimension to normalize the spatial frequency.
 
     Returns:
-        Laplacian variance (float). Higher = sharper.
+        Normalized Laplacian variance (float).
     """
     if image is None or image.size == 0:
         return 0.0
@@ -31,7 +28,13 @@ def compute_blur_score(image: np.ndarray) -> float:
     else:
         gray = image
 
-    laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+    # Force Scale Invariance
+    resized = cv2.resize(gray, (target_size, target_size))
+    
+    # Filter out ISO camera grain/noise
+    blurred = cv2.GaussianBlur(resized, (3, 3), 0)
+
+    laplacian = cv2.Laplacian(blurred, cv2.CV_64F)
     return float(laplacian.var())
 
 
@@ -72,7 +75,7 @@ def compute_blur_score_roi(frame: np.ndarray, bbox: tuple[int, int, int, int], k
             
             if ex2 > ex1 and ey2 > ey1:
                 eye_roi = frame[ey1:ey2, ex1:ex2]
-                scores.append(compute_blur_score(eye_roi))
+                scores.append(compute_blur_score(eye_roi, target_size=64))
                 
         if scores:
             # We want both eyes to be reasonably sharp, so we take the average or min. 
@@ -84,7 +87,7 @@ def compute_blur_score_roi(frame: np.ndarray, bbox: tuple[int, int, int, int], k
             x2, y2 = min(fw, x + w), min(fh, y + h)
             if x2 > x1 and y2 > y1:
                 face_roi = frame[y1:y2, x1:x2]
-                face_score = compute_blur_score(face_roi)
+                face_score = compute_blur_score(face_roi, target_size=128)
                 return (eye_score * 0.7) + (face_score * 0.3)
             return eye_score
 
@@ -98,4 +101,4 @@ def compute_blur_score_roi(frame: np.ndarray, bbox: tuple[int, int, int, int], k
         return 0.0
 
     roi = frame[y1:y2, x1:x2]
-    return compute_blur_score(roi)
+    return compute_blur_score(roi, target_size=128)

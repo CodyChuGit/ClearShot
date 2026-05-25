@@ -114,7 +114,7 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
                 video_path=job["video_path"],
                 output_dir=job["output_dir"],
                 target_fps=settings.get("target_fps", 2.0),
-                blur_threshold=settings.get("blur_threshold", 100.0),
+                blur_threshold=settings.get("blur_threshold", 50.0),
                 detection_confidence=settings.get("detection_confidence", 0.5),
                 crop_mode=settings.get("crop_mode", "face"),
                 padding_pct=settings.get("padding_pct", 20.0) / 100.0,
