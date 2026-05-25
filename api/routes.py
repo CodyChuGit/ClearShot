@@ -13,14 +13,18 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, File, UploadFile, HTTPException, Path as FastAPIPath
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+import re
 
 from pipeline.extractor import probe_video
 
 
 router = APIRouter(prefix="/api")
+
+ALLOWED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+VALID_YOUTUBE_REGEX = re.compile(r"^https?://(www\.)?(youtube\.com|youtu\.be)/.+$")
 
 # ---------------------------------------------------------------------------
 # Job storage (in-memory, single-user desktop app)
@@ -63,8 +67,11 @@ class ExtractionSettings(BaseModel):
 @router.post("/upload")
 async def upload_video(file: UploadFile = File(...)):
     """Upload a video file and return job metadata."""
+    ext = Path(file.filename or "video.mp4").suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+        
     job_id = str(uuid.uuid4())[:8]
-    ext = Path(file.filename or "video.mp4").suffix
     video_path = os.path.join(UPLOAD_DIR, f"{job_id}{ext}")
 
     # Save uploaded file
@@ -103,6 +110,9 @@ class DownloadUrlRequest(BaseModel):
 @router.post("/download-url")
 async def download_url(req: DownloadUrlRequest):
     """Register a URL download job."""
+    if not VALID_YOUTUBE_REGEX.match(req.url):
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+        
     from pipeline.downloader import probe_url
     
     job_id = str(uuid.uuid4())[:8]
@@ -134,7 +144,10 @@ async def download_url(req: DownloadUrlRequest):
     return {"job_id": job_id, "meta": meta}
 
 @router.post("/extract/{job_id}")
-async def start_extraction(job_id: str, settings: ExtractionSettings):
+async def start_extraction(
+    settings: ExtractionSettings,
+    job_id: str = FastAPIPath(..., pattern="^[a-zA-Z0-9-]+$")
+):
     """
     Start extraction for a job. Actual processing happens via WebSocket.
     This endpoint validates and stores settings.
@@ -164,7 +177,7 @@ async def start_extraction(job_id: str, settings: ExtractionSettings):
 
 
 @router.get("/jobs/{job_id}")
-async def get_job(job_id: str):
+async def get_job(job_id: str = FastAPIPath(..., pattern="^[a-zA-Z0-9-]+$")):
     """Get job status and results."""
     job = JOBS.get(job_id)
     if not job:
@@ -182,7 +195,7 @@ async def get_job(job_id: str):
 
 
 @router.get("/jobs/{job_id}/download")
-async def download_results(job_id: str):
+async def download_results(job_id: str = FastAPIPath(..., pattern="^[a-zA-Z0-9-]+$")):
     """Download all results as a ZIP file."""
     job = JOBS.get(job_id)
     if not job:
@@ -204,7 +217,7 @@ async def download_results(job_id: str):
 
 
 @router.delete("/jobs/{job_id}")
-async def delete_job(job_id: str):
+async def delete_job(job_id: str = FastAPIPath(..., pattern="^[a-zA-Z0-9-]+$")):
     """Delete a job and its files."""
     job = JOBS.get(job_id)
     if not job:
