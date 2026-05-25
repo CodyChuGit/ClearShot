@@ -380,6 +380,7 @@ def extract_frames(
                 break
                 
             frame_idx, frame = item
+            body_detections = None
 
             stats["total_sampled"] += 1
 
@@ -468,7 +469,7 @@ def extract_frames(
                     # 1. Body Pose Check (Shoulders, Elbows, Wrists)
                     if body_detector is not None:
                         # Lazy-evaluate body poses once per frame
-                        if 'body_detections' not in locals():
+                        if body_detections is None:
                             body_detections = body_detector.detect(frame)
                             
                         # COCO: 5,6(shoulders), 7,8(elbows), 9,10(wrists)
