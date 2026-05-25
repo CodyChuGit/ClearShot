@@ -390,7 +390,7 @@ class VideoExtractor:
         if self.crop_mode == "body" or self.occlusion_threshold > 0:
             self.body_type, self.body_detector = _init_body_detector(self.detection_confidence)
             
-        if self.occlusion_threshold > 0:
+        if self.occlusion_threshold > 0 and os.environ.get("CLEARSHOT_ENABLE_HAND_OCCLUSION") == "1":
             try:
                 from pipeline.hand_detector import HandDetector
                 self.hand_detector = HandDetector(max_hands=4)
@@ -434,12 +434,19 @@ class VideoExtractor:
         is_dup = any((phash - h) < self.dedup_threshold for h in self.seen_hashes)
         return is_dup, phash
 
-    def _check_occlusion(self, frame: np.ndarray, face_bbox: tuple[int, int, int, int], cropped: np.ndarray, body_detections: list | None) -> tuple[bool, list | None]:
-        """Returns (is_occluded, updated_body_detections)."""
+    def _check_occlusion(
+        self, 
+        frame: np.ndarray, 
+        face_bbox: tuple[int, int, int, int], 
+        body_detections: list | None,
+        hand_detections: list | None
+    ) -> tuple[bool, list | None, list | None]:
+        """Returns (is_occluded, updated_body_detections, updated_hand_detections)."""
         if self.occlusion_threshold <= 0:
-            return False, body_detections
+            return False, body_detections, hand_detections
             
         is_occluded = False
+        fx, fy, fw, fh = face_bbox
         
         # 1. Body Pose Check (Shoulders, Elbows, Wrists)
         if self.body_detector is not None:
@@ -447,7 +454,6 @@ class VideoExtractor:
                 body_detections = self.body_detector.detect(frame)
                 
             occlusion_kps = [5, 6, 7, 8, 9, 10]
-            fx, fy, fw, fh = face_bbox
             
             for body in body_detections:
                 for kp_idx in occlusion_kps:
@@ -459,13 +465,34 @@ class VideoExtractor:
                                 break
                 if is_occluded: break
                 
-        # 2. Precise Hand Check (Fingers)
+        # 2. Precise Hand Check (Fingers & Palm)
+        # We run this on the FULL frame because MediaPipe fails if only fingers are visible in the tight crop.
         if not is_occluded and self.hand_detector is not None:
-            hand_detections = self.hand_detector.detect(cropped)
-            if hand_detections:
-                is_occluded = True
+            if hand_detections is None:
+                hand_detections = self.hand_detector.detect(frame)
                 
-        return is_occluded, body_detections
+            fh_img, fw_img = frame.shape[:2]
+            
+            # Add margin to catch hands hovering just outside the bbox (e.g. holding a microphone)
+            margin_x = fw * 0.15
+            margin_y_top = fh * 0.15
+            margin_y_bottom = fh * 0.4  # Large bottom margin for hands holding mics below the chin
+            
+            x1 = fx - margin_x
+            y1 = fy - margin_y_top
+            x2 = fx + fw + margin_x
+            y2 = fy + fh + margin_y_bottom
+            
+            for hand in hand_detections:
+                for (lx_norm, ly_norm) in hand.landmarks:
+                    px = lx_norm * fw_img
+                    py = ly_norm * fh_img
+                    if x1 <= px <= x2 and y1 <= py <= y2:
+                        is_occluded = True
+                        break
+                if is_occluded: break
+                
+        return is_occluded, body_detections, hand_detections
 
     def _process_face(
         self, 
@@ -473,20 +500,21 @@ class VideoExtractor:
         face_bbox: tuple[int, int, int, int], 
         face_keypoints, 
         body_detections: list | None,
+        hand_detections: list | None,
         frame_idx: int,
         det_idx: int,
         output_dir: str,
         ext: str
-    ) -> list | None:
+    ) -> tuple[list | None, list | None]:
         """Processes a single detected face, applying all filters and saving it if valid."""
         if min(_clamped_bbox_size(frame, face_bbox)) < _min_source_face_size(frame):
             self.stats["low_resolution_discarded"] += 1
-            return body_detections
+            return body_detections, hand_detections
             
         blur_score = compute_blur_score_roi(frame, face_bbox, face_keypoints)
         if blur_score < self.blur_threshold:
             self.stats["blurry_discarded"] += 1
-            return body_detections
+            return body_detections, hand_detections
             
         if self.crop_mode == "body" and self.body_detector is not None:
             cropped = _crop_body(self.body_type, self.body_detector, frame, face_bbox, self.padding_pct, self.detection_confidence)
@@ -496,16 +524,16 @@ class VideoExtractor:
             cropped = crop_face(frame, face_bbox, self.padding_pct)
             
         if cropped is None or cropped.size == 0:
-            return body_detections
+            return body_detections, hand_detections
             
         if _is_low_resolution_source(frame, face_bbox, cropped):
             self.stats["low_resolution_discarded"] += 1
-            return body_detections
+            return body_detections, hand_detections
             
         crop_blur_score = compute_blur_score(cropped)
         if crop_blur_score < self.blur_threshold * 0.35:
             self.stats["blurry_discarded"] += 1
-            return body_detections
+            return body_detections, hand_detections
             
         # Square + resize (done before dedup to stabilize aspect ratio)
         squared = make_square(cropped, method=self.square_method)
@@ -515,13 +543,15 @@ class VideoExtractor:
         is_dup, phash = self._check_dedup(final)
         if is_dup:
             self.stats["duplicate_discarded"] += 1
-            return body_detections
+            return body_detections, hand_detections
             
         # Final Occlusion Check
-        is_occluded, body_detections = self._check_occlusion(frame, face_bbox, cropped, body_detections)
+        is_occluded, body_detections, hand_detections = self._check_occlusion(
+            frame, face_bbox, body_detections, hand_detections
+        )
         if is_occluded:
             self.stats["occluded_discarded"] += 1
-            return body_detections
+            return body_detections, hand_detections
             
         # Add to seen hashes ONLY if it survives all filters
         if phash is not None:
@@ -535,7 +565,7 @@ class VideoExtractor:
         self.write_futures.append((out_path, future))
         self.stats["extracted"] += 1
         
-        return body_detections
+        return body_detections, hand_detections
 
     def extract(self, video_path: str, output_dir: str, progress_callback: Callable[[float, str], None] | None = None) -> tuple[list[str], dict]:
         """
@@ -606,10 +636,11 @@ class VideoExtractor:
                     continue
                     
                 body_detections = None
+                hand_detections = None
                 for det_idx, face in enumerate(face_bboxes):
                     face_bbox = (face.x, face.y, face.w, face.h)
-                    body_detections = self._process_face(
-                        frame, face_bbox, face.keypoints, body_detections, frame_idx, det_idx, output_dir, ext
+                    body_detections, hand_detections = self._process_face(
+                        frame, face_bbox, face.keypoints, body_detections, hand_detections, frame_idx, det_idx, output_dir, ext
                     )
                     
         finally:
