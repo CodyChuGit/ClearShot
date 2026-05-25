@@ -141,6 +141,43 @@ async def download_video(job_id: str):
     )
 
 
+@app.get("/api/video/{job_id}/preview")
+async def preview_video(job_id: str):
+    """Extract a random frame from the video as a JPEG preview."""
+    import cv2
+    import random
+    from fastapi import Response
+
+    job = JOBS.get(job_id)
+    if not job or not job.get("video_path") or not os.path.exists(job["video_path"]):
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    cap = cv2.VideoCapture(job["video_path"])
+    if not cap.isOpened():
+        raise HTTPException(status_code=500, detail="Failed to open video")
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_frames <= 0:
+        total_frames = 100
+
+    # Pick a random frame between 10% and 90% to avoid black screens
+    target_frame = random.randint(int(total_frames * 0.1), int(total_frames * 0.9))
+    
+    cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+    ret, frame = cap.read()
+    cap.release()
+
+    if not ret or frame is None:
+        raise HTTPException(status_code=500, detail="Failed to extract frame")
+
+    # Encode to JPEG
+    success, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to encode frame")
+
+    return Response(content=buffer.tobytes(), media_type="image/jpeg")
+
+
 # ---------------------------------------------------------------------------
 # Serve React frontend (production build)
 # ---------------------------------------------------------------------------
