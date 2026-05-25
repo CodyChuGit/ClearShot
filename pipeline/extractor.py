@@ -152,30 +152,7 @@ def _write_image(path: str, image: np.ndarray) -> None:
 
 
 
-def _is_face_occluded_by_hands(face_bbox: tuple[int, int, int, int], hand_detections: list, frame_shape: tuple[int, int]) -> bool:
-    """
-    Checks if any hand landmarks fall inside the face bounding box.
-    """
-    fx, fy, fw, fh = face_bbox
-    fh_img, fw_img = frame_shape[:2]
-    
-    # We add a slight margin to the face bbox (10%) to catch hands hovering right over the jaw
-    margin_x = fw * 0.1
-    margin_y = fh * 0.1
-    
-    x1 = fx - margin_x
-    y1 = fy - margin_y
-    x2 = fx + fw + margin_x
-    y2 = fy + fh + margin_y
-    
-    for hand in hand_detections:
-        for (lx_norm, ly_norm) in hand.landmarks:
-            px = lx_norm * fw_img
-            py = ly_norm * fh_img
-            if x1 <= px <= x2 and y1 <= py <= y2:
-                return True
-                
-    return False
+
 
 def _min_source_face_size(frame: np.ndarray) -> int:
     """
@@ -422,19 +399,11 @@ def extract_frames(
                 frame_idx += 1
                 continue
 
-            # Run hand tracking once per frame if occlusion check is enabled and faces are found
-            hand_detections = []
-            if hand_detector is not None:
-                hand_detections = hand_detector.detect(frame)
-
             # Process every detected face in the frame
             for det_idx, face in enumerate(face_bboxes):
                 face_bbox = (face.x, face.y, face.w, face.h)
                 
-                if hand_detector is not None:
-                    if _is_face_occluded_by_hands(face_bbox, hand_detections, frame.shape):
-                        stats["occluded_discarded"] += 1
-                        continue
+
                     
                 if min(_clamped_bbox_size(frame, face_bbox)) < _min_source_face_size(frame):
                     stats["low_resolution_discarded"] += 1
@@ -483,6 +452,15 @@ def extract_frames(
                         if is_dup:
                             stats["duplicate_discarded"] += 1
                             continue
+                            
+                # --- Occlusion Check (Run last to save performance) ---
+                if hand_detector is not None:
+                    # Run hand tracking on the final cropped image
+                    hand_detections = hand_detector.detect(cropped)
+                    if hand_detections:
+                        # If a hand is detected inside the tight face crop, it's an occlusion
+                        stats["occluded_discarded"] += 1
+                        continue
                         seen_hashes.add(phash)
 
                 # --- Square + resize ---
