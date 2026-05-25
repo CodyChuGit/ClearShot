@@ -31,7 +31,8 @@ export interface ExtractionSettings {
   output_size: number;
   output_format: 'png' | 'jpg';
   dedup_threshold: number;
-  download_resolution?: '720p' | '1080p' | '2160p' | 'max';
+  filter_occluded: boolean;
+  download_resolution: 'max' | '1080p' | '720p' | '480p';
 }
 
 export interface ExtractionStats {
@@ -40,8 +41,9 @@ export interface ExtractionStats {
   low_resolution_discarded: number;
   no_face_discarded: number;
   duplicate_discarded: number;
+  occluded_discarded: number;
   extracted: number;
-  gpu_backend?: string;
+  gpu_backend: string;
 }
 
 export interface ProgressMessage {
@@ -91,5 +93,6 @@ export const DEFAULT_SETTINGS: ExtractionSettings = {
   output_size: 512,
   output_format: 'png',
   dedup_threshold: 8,
+  filter_occluded: true,
   download_resolution: 'max',
 };

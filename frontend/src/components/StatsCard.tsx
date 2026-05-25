@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { Images, Minus, Eye, Copy, ImageOff } from 'lucide-react';
+import { Images, Minus, Eye, Copy, ImageOff, UserX } from 'lucide-react';
 import type { ExtractionStats } from '../types';
 
 interface Props {
@@ -12,6 +12,7 @@ export function StatsCard({ stats }: Props) {
     { icon: <Minus size={15} />, label: 'Blurry', value: stats.blurry_discarded, color: 'var(--warning)' },
     { icon: <ImageOff size={15} />, label: 'Low res', value: stats.low_resolution_discarded ?? 0, color: 'var(--warning)' },
     { icon: <Eye size={15} />, label: 'No face', value: stats.no_face_discarded, color: 'var(--error)' },
+    { icon: <UserX size={15} />, label: 'Occluded', value: stats.occluded_discarded ?? 0, color: 'var(--error)' },
     { icon: <Copy size={15} />, label: 'Duplicates', value: stats.duplicate_discarded, color: 'var(--accent)' },
   ];
 

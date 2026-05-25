@@ -27,6 +27,7 @@ except ImportError:
 
 from pipeline.quality import compute_blur_score, compute_blur_score_roi
 from pipeline.cropper import crop_face, crop_body, crop_body_from_keypoints, make_square, resize_square
+from pipeline.face_detector import FaceDetection
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +147,51 @@ def _write_image(path: str, image: np.ndarray) -> None:
         raise RuntimeError(f"Failed to write extracted image: {path}")
 
 
+def is_occluded(kps: list[tuple[float, float]] | None) -> bool:
+    """
+    Check if a face is heavily occluded using the 5 SCRFD structural keypoints:
+    [left_eye, right_eye, nose, left_mouth, right_mouth].
+    """
+    if not kps or len(kps) < 5:
+        return False
+        
+    le = np.array(kps[0])
+    re = np.array(kps[1])
+    nose = np.array(kps[2])
+    lm = np.array(kps[3])
+    rm = np.array(kps[4])
+    
+    eye_center = (le + re) / 2
+    mouth_center = (lm + rm) / 2
+    
+    eye_dist = np.linalg.norm(le - re)
+    face_length = np.linalg.norm(eye_center - mouth_center)
+    
+    if eye_dist == 0 or face_length == 0:
+        return True
+        
+    # 1. Eyes should physically be above mouth (y-axis increases downwards in image)
+    if eye_center[1] >= mouth_center[1]:
+        return True
+        
+    # 2. Ratio of face length to eye width
+    ratio = face_length / eye_dist
+    if ratio < 0.5 or ratio > 2.5:
+        return True
+        
+    # 3. Nose should be roughly between eyes and mouth
+    nose_dist = np.linalg.norm(nose - eye_center) + np.linalg.norm(nose - mouth_center)
+    if nose_dist > face_length * 1.5:
+        return True
+        
+    # 4. Mouth width vs Eye width
+    mouth_dist = np.linalg.norm(lm - rm)
+    if mouth_dist > eye_dist * 2.0 or mouth_dist < eye_dist * 0.3:
+        return True
+        
+    return False
+
+
 def _min_source_face_size(frame: np.ndarray) -> int:
     """
     Minimum face size in original video pixels.
@@ -259,6 +305,7 @@ def extract_frames(
     output_size: int = 512,
     output_format: str = "png",
     dedup_threshold: int = 8,         # hamming distance for dedup
+    filter_occluded: bool = True,
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> tuple[list[str], dict]:
     """
@@ -313,6 +360,7 @@ def extract_frames(
         "low_resolution_discarded": 0,
         "no_face_discarded": 0,
         "duplicate_discarded": 0,
+        "occluded_discarded": 0,
         "extracted": 0,
         "gpu_backend": _active_backend(face_type, face_detector, body_type, body_detector),
     }
@@ -359,7 +407,13 @@ def extract_frames(
                 continue
 
             # Process every detected face in the frame
-            for det_idx, face_bbox in enumerate(face_bboxes):
+            for det_idx, face in enumerate(face_bboxes):
+                face_bbox = (face.x, face.y, face.w, face.h)
+                
+                if filter_occluded and is_occluded(face.keypoints):
+                    stats["occluded_discarded"] += 1
+                    continue
+                    
                 if min(_clamped_bbox_size(frame, face_bbox)) < _min_source_face_size(frame):
                     stats["low_resolution_discarded"] += 1
                     continue
@@ -452,17 +506,16 @@ def _detect_faces(
     detector,
     frame: np.ndarray,
     confidence: float,
-) -> list[tuple[int, int, int, int]]:
+) -> list[FaceDetection]:
     """
     Detect faces using either ONNX or MediaPipe detector.
 
-    Returns list of (x, y, w, h) bounding boxes.
+    Returns list of FaceDetection objects.
     """
     fh, fw = frame.shape[:2]
 
     if detector_type == "onnx":
-        detections = detector.detect(frame, confidence=confidence)
-        return [(d.x, d.y, d.w, d.h) for d in detections]
+        return detector.detect(frame, confidence=confidence)
     else:
         # MediaPipe
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -472,11 +525,13 @@ def _detect_faces(
         bboxes = []
         for detection in face_results.detections:
             rbb = detection.location_data.relative_bounding_box
-            bboxes.append((
-                int(rbb.xmin * fw),
-                int(rbb.ymin * fh),
-                int(rbb.width * fw),
-                int(rbb.height * fh),
+            bboxes.append(FaceDetection(
+                x=int(rbb.xmin * fw),
+                y=int(rbb.ymin * fh),
+                w=int(rbb.width * fw),
+                h=int(rbb.height * fh),
+                score=detection.score[0] if detection.score else 1.0,
+                keypoints=None
             ))
         return bboxes
 

@@ -57,6 +57,7 @@ class FaceDetection:
     w: int       # Width
     h: int       # Height
     score: float # Detection confidence
+    keypoints: list[tuple[float, float]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +233,7 @@ class FaceDetector:
 
         all_boxes = []
         all_scores = []
+        all_kps = []
 
         # SCRFD has 3 stride levels, each with score + bbox outputs
         # Output ordering: [score_8, bbox_8, kps_8, score_16, bbox_16, kps_16, score_32, bbox_32, kps_32]
@@ -243,24 +245,25 @@ class FaceDetector:
         if num_outputs >= 9:
             # Outputs: 0,1,2 (scores), 3,4,5 (bboxes), 6,7,8 (keypoints)
             stride_outputs = [
-                (outputs[0], outputs[3], 8),
-                (outputs[1], outputs[4], 16),
-                (outputs[2], outputs[5], 32),
+                (outputs[0], outputs[3], outputs[6], 8),
+                (outputs[1], outputs[4], outputs[7], 16),
+                (outputs[2], outputs[5], outputs[8], 32),
             ]
         elif num_outputs >= 6:
             # Outputs: 0,1,2 (scores), 3,4,5 (bboxes)
             stride_outputs = [
-                (outputs[0], outputs[3], 8),
-                (outputs[1], outputs[4], 16),
-                (outputs[2], outputs[5], 32),
+                (outputs[0], outputs[3], None, 8),
+                (outputs[1], outputs[4], None, 16),
+                (outputs[2], outputs[5], None, 32),
             ]
         else:
             # Fallback: try to parse whatever we get
             return []
 
-        for scores_raw, bboxes_raw, stride in stride_outputs:
+        for scores_raw, bboxes_raw, kps_raw, stride in stride_outputs:
             scores = scores_raw.reshape(-1)
             bboxes = bboxes_raw.reshape(-1, 4)
+            kps = kps_raw.reshape(-1, 10) if kps_raw is not None else None
 
             if bboxes.shape[0] != scores.shape[0]:
                 count = min(bboxes.shape[0], scores.shape[0])
@@ -314,6 +317,16 @@ class FaceDetector:
                 if w > 5 and h > 5:
                     all_boxes.append([x1, y1, w, h])
                     all_scores.append(float(score))
+                    if kps is not None:
+                        kp = kps[idx]
+                        out_kps = []
+                        for i in range(5):
+                            kx = (cx + kp[i*2] * stride - pad_w) / ratio
+                            ky = (cy + kp[i*2+1] * stride - pad_h) / ratio
+                            out_kps.append((kx, ky))
+                        all_kps.append(out_kps)
+                    else:
+                        all_kps.append(None)
 
         if not all_boxes:
             return []
@@ -336,6 +349,7 @@ class FaceDetector:
                 results.append(FaceDetection(
                     x=x, y=y, w=w, h=h,
                     score=all_scores[i],
+                    keypoints=all_kps[i] if all_kps else None,
                 ))
 
         return results

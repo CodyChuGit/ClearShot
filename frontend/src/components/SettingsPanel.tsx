@@ -8,10 +8,16 @@ interface Props {
 }
 
 const MAX_SHARPNESS = 250;
+const MIN_DETECTION_CONFIDENCE = 0.3;
+const MAX_DETECTION_CONFIDENCE = 0.8;
 
 export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15 }: Props) {
   const targetFpsMax = Math.max(0.5, maxTargetFps);
   const targetFpsValue = Math.min(settings.target_fps, targetFpsMax);
+  const detectionConfidenceValue = Math.min(
+    Math.max(settings.detection_confidence, MIN_DETECTION_CONFIDENCE),
+    MAX_DETECTION_CONFIDENCE,
+  );
 
   return (
     <div className="settings">
@@ -61,11 +67,14 @@ export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15 
         <input
           type="range"
           className="setting-slider"
-          min={0.3} max={1} step={0.05}
-          value={settings.detection_confidence}
+          min={MIN_DETECTION_CONFIDENCE} max={MAX_DETECTION_CONFIDENCE} step={0.05}
+          value={detectionConfidenceValue}
           onChange={(e) => onChange({ detection_confidence: Number(e.target.value) })}
           disabled={disabled}
         />
+        <div className="setting-range-labels">
+          <span>30%</span><span>80%</span>
+        </div>
       </div>
 
       <div className="setting-group">
@@ -79,6 +88,25 @@ export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15 
               disabled={disabled}
             >
               {mode === 'face' ? '👤 Face' : '🧍 Body'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="setting-group">
+        <label className="setting-label">Filter Occluded Faces</label>
+        <div className="segmented-control">
+          {([
+            { value: true, label: 'Yes' },
+            { value: false, label: 'No' },
+          ] as const).map(({ value, label }) => (
+            <button
+              key={String(value)}
+              className={`segment ${settings.filter_occluded === value ? 'segment--active' : ''}`}
+              onClick={() => onChange({ filter_occluded: value })}
+              disabled={disabled}
+            >
+              {label}
             </button>
           ))}
         </div>

@@ -164,15 +164,18 @@ Default settings:
   target_fps: 2,
   blur_threshold: 100,
   detection_confidence: 0.5,
-  crop_mode: "face",
+  crop_mode: 'face',
   padding_pct: 20,
-  square_method: "center_crop",
+  square_method: 'center_crop',
   output_size: 512,
-  output_format: "png",
+  output_format: 'png',
   dedup_threshold: 8,
-  download_resolution: "max"
+  filter_occluded: true,
+  download_resolution: 'max',
 }
 ```
+
+- **Face Occlusion Filter**: Analyzes the 5 SCRFD structural keypoints (eyes, nose, mouth corners) to mathematically determine if the face is heavily occluded (e.g. by hands or masks). This runs at zero performance cost.
 
 ---
 
