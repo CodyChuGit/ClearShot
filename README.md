@@ -44,9 +44,26 @@ sudo apt install ffmpeg
 
 ## Setup & Running
 
-ClearShot requires both the backend and frontend servers to be running during development.
+We provide automated scripts to make installation and startup easy. 
+Make sure you have **Python 3.10+** and **Node.js 18+** installed before running these.
 
-### 1. Backend Setup
+### Quick Start
+
+```bash
+# 1. Install all Python and Node dependencies
+./install.sh
+
+# 2. Start the FastAPI backend and React frontend
+./start.sh
+```
+
+The app will be available at **http://localhost:5173**.
+
+---
+
+### Manual Setup (Optional)
+
+#### 1. Backend Setup
 
 ```bash
 # Clone / navigate to the project
