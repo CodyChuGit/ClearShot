@@ -485,8 +485,8 @@ def extract_frames(
                     stats["low_resolution_discarded"] += 1
                     continue
 
-                # --- Blur check on face region ---
-                blur_score = compute_blur_score_roi(frame, face_bbox)
+                # --- Blur check on face region (prioritizing eyes) ---
+                blur_score = compute_blur_score_roi(frame, face_bbox, face.keypoints)
                 if blur_score < blur_threshold:
                     stats["blurry_discarded"] += 1
                     continue
