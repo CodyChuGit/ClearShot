@@ -306,7 +306,7 @@ def extract_frames(
     face_type, face_detector = _init_face_detector(detection_confidence)
 
     body_type, body_detector = None, None
-    if crop_mode == "body":
+    if crop_mode == "body" or occlusion_threshold > 0:
         body_type, body_detector = _init_body_detector(detection_confidence)
         
     hand_detector = None
@@ -452,16 +452,47 @@ def extract_frames(
                         if is_dup:
                             stats["duplicate_discarded"] += 1
                             continue
+                else:
+                    phash = None
                             
-                # --- Occlusion Check (Run last to save performance) ---
-                if hand_detector is not None:
-                    # Run hand tracking on the final cropped image
-                    hand_detections = hand_detector.detect(cropped)
-                    if hand_detections:
-                        # If a hand is detected inside the tight face crop, it's an occlusion
+                # --- Final Occulsion Checks ---
+                # We only run these heavy checks on faces that survived all other filters
+                if occlusion_threshold > 0:
+                    is_occluded = False
+                    
+                    # 1. Body Pose Check (Shoulders, Elbows, Wrists)
+                    if body_detector is not None:
+                        # Lazy-evaluate body poses once per frame
+                        if 'body_detections' not in locals():
+                            body_detections = body_detector.detect(frame)
+                            
+                        # COCO: 5,6(shoulders), 7,8(elbows), 9,10(wrists)
+                        occlusion_kps = [5, 6, 7, 8, 9, 10]
+                        fx, fy, fw, fh = face_bbox
+                        
+                        for body in body_detections:
+                            for kp_idx in occlusion_kps:
+                                if kp_idx < len(body.keypoints):
+                                    kp = body.keypoints[kp_idx]
+                                    if kp.confidence > 0.4:
+                                        if fx <= kp.x <= fx + fw and fy <= kp.y <= fy + fh:
+                                            is_occluded = True
+                                            break
+                            if is_occluded: break
+
+                    # 2. Precise Hand Check (Fingers)
+                    if not is_occluded and hand_detector is not None:
+                        hand_detections = hand_detector.detect(cropped)
+                        if hand_detections:
+                            is_occluded = True
+
+                    if is_occluded:
                         stats["occluded_discarded"] += 1
                         continue
-                        seen_hashes.add(phash)
+                        
+                # --- Dedup (Hash Add) ---
+                if HAS_IMAGEHASH and dedup_threshold > 0 and phash is not None:
+                    seen_hashes.add(phash)
 
                 # --- Square + resize ---
                 squared = make_square(cropped, method=square_method)
