@@ -438,7 +438,7 @@ class VideoExtractor:
         is_occluded = False
         fx, fy, fw, fh = face_bbox
         
-        scale_factor = (self.occlusion_threshold / 50.0) * 2.25
+        scale_factor = (self.occlusion_threshold / 50.0) * 2.7
         
         # 1. Body Pose Check (Shoulders, Elbows, Wrists overlapping face)
         if self.body_detector is not None:
@@ -487,9 +487,9 @@ class VideoExtractor:
                 lap_var = cv2.Laplacian(resized, cv2.CV_64F).var()
                 
                 # Normal face = ~150. Microphone/hand = > 700.
-                # If threshold is 50 (default), allowed = 475 (previously 600).
+                # If threshold is 50 (default), allowed = 400.
                 # If threshold is 100 (strictest), allowed = 150 (requires perfectly smooth skin).
-                allowed_var = 800.0 - (self.occlusion_threshold * 6.5)
+                allowed_var = 650.0 - (self.occlusion_threshold * 5.0)
                 
                 if lap_var > allowed_var:
                     is_occluded = True
