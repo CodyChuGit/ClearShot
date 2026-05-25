@@ -205,18 +205,22 @@ def compute_occlusion_score(img_bgr: np.ndarray, kps: list[tuple[float, float]] 
     var_e1 = get_var(le, size)
     var_e2 = get_var(re, size)
     
-    # Ratios against full face crop
-    r_m = var_m / var_f
-    r_n = var_n / var_f
-    r_e1 = var_e1 / var_f
-    r_e2 = var_e2 / var_f
+    # Use the mean variance of the face patches as the baseline,
+    # rather than the padded crop which might include textured background.
+    baseline_var = max(1.0, float(np.mean([var_n, var_e1, var_e2, var_m])))
+    
+    # Ratios against the internal face baseline
+    r_m = var_m / baseline_var
+    r_n = var_n / baseline_var
+    r_e1 = var_e1 / baseline_var
+    r_e2 = var_e2 / baseline_var
     
     def calc_penalty(r):
-        if r < 0.05:
-            # extremely smooth (e.g. hand, flat mask)
-            return ((0.05 - r) / 0.05) * 3.0 # max penalty 3.0
+        if r < 0.15:
+            # extremely smooth relative to the face (e.g. solid hand or flat mask)
+            return ((0.15 - r) / 0.15) * 3.0 # max penalty 3.0
         elif r > 3.0:
-            # extremely textured (e.g. microphone grid)
+            # extremely textured relative to the face (e.g. microphone grid or textured mask)
             return min(3.0, (r - 3.0) * 0.5)
         return 0.0
         
