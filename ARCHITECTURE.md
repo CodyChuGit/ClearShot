@@ -598,14 +598,16 @@ Extraction pipeline:
 ONNX/GPU:
 - Implement pipeline/gpu.py with detect_gpu(), get_providers(), create_session(), create_cpu_session().
 - Prefer CUDA if available, then CoreML, then CPU.
-- On Apple Silicon use CoreMLExecutionProvider with MLComputeUnits CPUAndGPU by default so CoreML can use Metal.
-- Allow CLEARSHOT_COREML_COMPUTE_UNITS override and CLEARSHOT_DISABLE_COREML=1.
+- On Apple Silicon use CoreMLExecutionProvider with ModelFormat: "MLProgram" and RequireStaticInputShapes: "1".
+- Set COREML_COMPUTE_UNITS env var as a framework-level fallback since ORT 1.19 silently ignores CoreML dict options.
+- Allow CLEARSHOT_COREML_COMPUTE_UNITS override (default CPUAndGPU) and CLEARSHOT_DISABLE_COREML=1.
 - Prepare an app-owned CoreML temp dir under clearshot_coreml_tmp and set TMPDIR to it.
 - If GPU session creation fails, fallback to CPU.
 - If GPU inference fails at runtime, rebuild a CPU session and retry inference.
 - Report actual runtime backend in extraction stats.
 
 Models:
+- ALL ONNX models must have their dynamic spatial dimensions frozen to static [1, 3, 640, 640] using a script (e.g. scripts/fix_onnx_shapes.py). CoreML cannot compile Metal shaders for dynamic shapes and will silently fallback to CPU.
 - Face: SCRFD 2.5G ONNX, letterbox 640x640, normalize (img - 127.5) / 128.0, decode stride outputs 8/16/32, apply NMS, return x/y/w/h/score.
 - Body: YOLOv8n-pose ONNX from HuggingFace Xenova/yolov8n-pose, letterbox 640x640, normalize 0..1, decode 56-channel output into bbox/confidence/17 keypoints, apply NMS.
 
