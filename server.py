@@ -6,6 +6,9 @@ Replaces the Gradio app with a decoupled REST + WebSocket backend.
 """
 
 import os
+import time
+import shutil
+import asyncio
 from pathlib import Path
 
 import uvicorn
@@ -14,8 +17,44 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from api.routes import router as api_router, OUTPUT_BASE
+from api.routes import router as api_router, OUTPUT_BASE, UPLOAD_DIR, JOBS
 from api.websocket import router as ws_router
+
+# ---------------------------------------------------------------------------
+# Background Garbage Collection
+# ---------------------------------------------------------------------------
+CACHE_TTL_SECONDS = 2 * 60 * 60  # 2 hours
+
+async def garbage_collection_loop():
+    """Periodically purges orphaned cache files and stale jobs."""
+    while True:
+        try:
+            await asyncio.sleep(30 * 60)  # run every 30 minutes
+            now = time.time()
+            
+            # Clean UPLOAD_DIR
+            if os.path.exists(UPLOAD_DIR):
+                for f in os.listdir(UPLOAD_DIR):
+                    p = os.path.join(UPLOAD_DIR, f)
+                    if os.path.isfile(p) and (now - os.path.getmtime(p)) > CACHE_TTL_SECONDS:
+                        try: os.remove(p)
+                        except: pass
+
+            # Clean OUTPUT_BASE
+            if os.path.exists(OUTPUT_BASE):
+                for d in os.listdir(OUTPUT_BASE):
+                    p = os.path.join(OUTPUT_BASE, d)
+                    if os.path.isdir(p) and (now - os.path.getmtime(p)) > CACHE_TTL_SECONDS:
+                        try: shutil.rmtree(p)
+                        except: pass
+                        
+            # Clean JOBS dictionary
+            stale_jobs = [jid for jid, j in JOBS.items() if (now - j.get("created_at", 0)) > CACHE_TTL_SECONDS]
+            for jid in stale_jobs:
+                del JOBS[jid]
+                
+        except Exception:
+            pass
 
 
 app = FastAPI(
@@ -23,6 +62,10 @@ app = FastAPI(
     description="Extract sharp, face-focused training data from video",
     version="2.0.0",
 )
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(garbage_collection_loop())
 
 # CORS — allow Vite dev server
 app.add_middleware(
