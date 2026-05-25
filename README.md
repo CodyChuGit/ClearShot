@@ -1,21 +1,27 @@
 # ClearShot — Training Data Extractor
 
-Extract sharp, face-focused frames from video for AI/ML training data. Cross-platform Gradio app.
+Extract sharp, face-focused frames from local videos or YouTube URLs for AI/ML training data. 
+
+ClearShot is a full-stack application with a React frontend and a FastAPI backend. It utilizes ONNX Runtime to provide high-performance hardware-accelerated face and pose detection (including Metal GPU support for Apple Silicon).
 
 ## Features
 
-- **Smart frame sampling** — Configurable FPS extraction rate
-- **Blur rejection** — Laplacian variance filter removes motion-blurred frames
-- **Face detection** — MediaPipe-powered face detection with confidence tuning
-- **Crop modes** — Face-focused or full-body crop
-- **Square output** — Center-crop or letterbox to square, at configurable resolution
-- **De-duplication** — Perceptual hashing skips near-identical frames
-- **Batch download** — ZIP export of all extracted frames
+- **Local & Online Videos** — Upload a local `.mp4`/`.mov` or paste a YouTube URL to automatically download and process.
+- **Smart Frame Sampling** — Configurable FPS extraction rate.
+- **Blur Rejection** — Laplacian variance filter removes motion-blurred frames.
+- **Hardware-Accelerated AI** — Uses ONNX Runtime for blazing-fast inference:
+  - **Face Mode**: Uses SCRFD 2.5G.
+  - **Body Mode**: Uses YOLOv8n-pose.
+  - *Full support for Apple Silicon CoreML (Metal GPU) and CUDA.*
+- **Square Output** — Center-crop or letterbox to square, at configurable resolutions (up to 1920px).
+- **De-duplication** — Perceptual hashing skips near-identical frames.
+- **Batch Download** — Export all extracted frames as a ZIP archive.
 
 ## Requirements
 
-- **Python 3.10+**
-- **FFmpeg** (optional but recommended for accurate video metadata)
+- **Node.js 18+** (for frontend)
+- **Python 3.10+** (for backend)
+- **FFmpeg** (Must be installed and available in `$PATH`)
 
 ### Install FFmpeg
 
@@ -26,10 +32,8 @@ brew install ffmpeg
 
 **Windows:**
 ```bash
-# Using winget
 winget install ffmpeg
-
-# Or using choco
+# or
 choco install ffmpeg
 ```
 
@@ -38,44 +42,71 @@ choco install ffmpeg
 sudo apt install ffmpeg
 ```
 
-## Setup
+## Setup & Running
+
+ClearShot requires both the backend and frontend servers to be running during development.
+
+### 1. Backend Setup
 
 ```bash
 # Clone / navigate to the project
 cd clear-shot
 
 # Create virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate   # macOS/Linux
-# venv\Scripts\activate    # Windows
+python3 -m venv venv
+source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the app
-python app.py
+# Start the FastAPI server (runs on port 8000)
+python3 server.py
+# Or using uvicorn: uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
-The app will be available at **http://localhost:7860**
+### 2. Frontend Setup
 
-## Usage
+In a new terminal window:
 
-1. Upload a video file
-2. Adjust extraction settings (FPS, blur threshold, crop mode, etc.)
-3. Click **Extract Frames**
-4. Review results in the gallery
-5. Download all frames as a ZIP
+```bash
+cd clear-shot/frontend
+
+# Install dependencies
+npm install
+
+# Start the Vite development server
+npm run dev
+```
+
+The app will be available at **http://localhost:5173**.
+
+### 3. Production Build
+
+To run the app as a single service, build the frontend first. The FastAPI backend is configured to automatically serve the compiled React app.
+
+```bash
+cd clear-shot/frontend
+npm run build
+cd ..
+
+# Start the backend; it will serve the frontend on http://localhost:8000
+python3 server.py
+```
+
+## Developer Guide & Architecture
+
+For a complete breakdown of the application architecture, GPU optimization details, API endpoints, and instructions on how to rebuild this app from scratch, please read **[ARCHITECTURE.md](./ARCHITECTURE.md)**.
 
 ## Settings Guide
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Extraction FPS | 2.0 | Frames sampled per second of video |
-| Blur Threshold | 100 | Higher = stricter blur rejection |
-| Detection Confidence | 0.5 | Minimum face detection score |
-| Crop Mode | Face | Face-focused or full body |
-| Padding % | 20% | Extra margin around detected region |
-| Square Method | Center Crop | Center-crop or letterbox padding |
-| Output Size | 512px | Final image dimensions |
-| Output Format | PNG | PNG (lossless) or JPG |
-| De-dup Sensitivity | 8 | 0 = off, higher = more aggressive |
+| Extraction FPS | 2.0 | Frames sampled per second of video. |
+| Blur Threshold | 100 | Higher = stricter blur rejection. |
+| Detection Confidence | 0.5 | Minimum AI detection score (face/body). |
+| Crop Mode | Face | Face-focused or full body. |
+| Padding % | 20% | Extra margin around the detected region. |
+| Square Method | Center Crop | Center-crop (fill) or letterbox (fit). |
+| Output Size | 512px | Final image dimension. |
+| Output Format | PNG | PNG (lossless) or JPG. |
+| De-dup Sensitivity | 8 | 0 = off, higher = more aggressive perceptual deduplication. |
