@@ -216,12 +216,12 @@ def compute_occlusion_score(img_bgr: np.ndarray, kps: list[tuple[float, float]] 
     r_e2 = var_e2 / baseline_var
     
     def calc_penalty(r):
-        if r < 0.15:
+        if r < 0.2:
             # extremely smooth relative to the face (e.g. solid hand or flat mask)
-            return ((0.15 - r) / 0.15) * 3.0 # max penalty 3.0
-        elif r > 3.0:
+            return ((0.2 - r) / 0.2) * 4.0 # max penalty 4.0
+        elif r > 2.5:
             # extremely textured relative to the face (e.g. microphone grid or textured mask)
-            return min(3.0, (r - 3.0) * 0.5)
+            return min(4.0, (r - 2.5) * 1.0)
         return 0.0
         
     pen_m = calc_penalty(r_m)
@@ -229,11 +229,18 @@ def compute_occlusion_score(img_bgr: np.ndarray, kps: list[tuple[float, float]] 
     pen_e1 = calc_penalty(r_e1)
     pen_e2 = calc_penalty(r_e2)
     
-    face_length = np.linalg.norm(np.array(eye_center) - np.array(mouth_center))
-    len_ratio = face_length / eye_dist
-    len_penalty = abs(len_ratio - 1.35) * 2.0
+    # Asymmetry penalty: Eyes should have roughly similar texture variance.
+    # If a hand or hair covers one eye, this spikes.
+    eye_asym = abs(var_e1 - var_e2) / max(1.0, (var_e1 + var_e2) / 2)
+    asym_penalty = max(0.0, (eye_asym - 0.5) * 3.0)
     
-    total_penalty = pen_m + pen_n + pen_e1 + pen_e2 + len_penalty
+    # Keypoint Integrity: Objects covering the lower face heavily distort the SCRFD mouth prediction.
+    face_length = np.linalg.norm(np.array(eye_center) - np.array(mouth_center))
+    len_ratio = face_length / max(1.0, eye_dist)
+    # Normal ratio is ~1.35. We square the deviation to exponentially punish structural squishing.
+    len_penalty = (abs(len_ratio - 1.35) ** 2) * 20.0
+    
+    total_penalty = pen_m + pen_n + pen_e1 + pen_e2 + asym_penalty + len_penalty
     
     # scale so normal faces are ~80-100, occluded are < 40
     return max(0.0, 100.0 - (total_penalty * 20.0))
