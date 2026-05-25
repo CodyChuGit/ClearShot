@@ -16,7 +16,10 @@ from typing import Callable
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image
+import queue
+import threading
 
 try:
     import imagehash
@@ -152,8 +155,7 @@ def _write_image(path: str, image: np.ndarray) -> None:
 def compute_occlusion_score(img_bgr: np.ndarray, kps: list[tuple[float, float]] | None) -> float:
     """
     Computes a 0 to 100 score based on Laplacian texture variance of facial regions.
-    If a hand or mask covers the face, the texture variance ratio drops heavily (smooth)
-    or spikes (textured microphone/mask).
+    Highly optimized: Extracts a localized bounding box around the keypoints before computing the Laplacian.
     """
     if not kps or len(kps) < 5: return 0.0
     
@@ -161,28 +163,49 @@ def compute_occlusion_score(img_bgr: np.ndarray, kps: list[tuple[float, float]] 
     eye_dist = np.linalg.norm(np.array(le) - np.array(re))
     if eye_dist < 10: return 0.0
     
+    # 1. Compute local crop bounds based on keypoints
+    kps_arr = np.array(kps)
+    x_min, y_min = np.min(kps_arr, axis=0)
+    x_max, y_max = np.max(kps_arr, axis=0)
+    
+    pad = int(eye_dist * 1.5)
+    fh, fw = img_bgr.shape[:2]
+    
+    c_x1 = max(0, int(x_min - pad))
+    c_y1 = max(0, int(y_min - pad))
+    c_x2 = min(fw, int(x_max + pad))
+    c_y2 = min(fh, int(y_max + pad))
+    
+    face_crop = img_bgr[c_y1:c_y2, c_x1:c_x2]
+    if face_crop.size == 0: return 0.0
+    
+    # 2. Compute full face-crop variance
+    gray_crop = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+    laplacian_crop = cv2.Laplacian(gray_crop, cv2.CV_64F)
+    var_f = np.var(laplacian_crop)
+    if var_f < 1: return 0.0
+    
+    # 3. Helper to get variance of local patches
+    def get_var(center, size_r):
+        # Offset center by crop coordinates
+        x = int(center[0]) - c_x1
+        y = int(center[1]) - c_y1
+        y1, y2 = max(0, y-size_r), min(laplacian_crop.shape[0], y+size_r)
+        x1, x2 = max(0, x-size_r), min(laplacian_crop.shape[1], x+size_r)
+        patch = laplacian_crop[y1:y2, x1:x2]
+        if patch.size == 0: return 0.0
+        return np.var(patch)
+        
+    size = int(eye_dist * 0.4)
     mouth_center = ((lm[0]+rm[0])/2, (lm[1]+rm[1])/2)
     eye_center = ((le[0]+re[0])/2, (le[1]+re[1])/2)
     
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    var_f = np.var(cv2.Laplacian(gray, cv2.CV_64F))
-    if var_f < 1: return 0.0
-    
-    def get_var(center, size_r):
-        x, y = int(center[0]), int(center[1])
-        y1, y2 = max(0, y-size_r), min(gray.shape[0], y+size_r)
-        x1, x2 = max(0, x-size_r), min(gray.shape[1], x+size_r)
-        patch = gray[y1:y2, x1:x2]
-        if patch.size == 0: return 0.0
-        return np.var(cv2.Laplacian(patch, cv2.CV_64F))
-        
-    size = int(eye_dist * 0.4)
     var_m = get_var(mouth_center, size)
     var_n = get_var(nose, size)
     var_e1 = get_var(le, size)
     var_e2 = get_var(re, size)
     
-    # Ratios against full face
+    # Ratios against full face crop
     r_m = var_m / var_f
     r_n = var_n / var_f
     r_e1 = var_e1 / var_f
@@ -209,8 +232,7 @@ def compute_occlusion_score(img_bgr: np.ndarray, kps: list[tuple[float, float]] 
     total_penalty = pen_m + pen_n + pen_e1 + pen_e2 + len_penalty
     
     # scale so normal faces are ~80-100, occluded are < 40
-    score = max(0.0, 100.0 - (total_penalty * 20.0))
-    return score
+    return max(0.0, 100.0 - (total_penalty * 20.0))
 
 def _min_source_face_size(frame: np.ndarray) -> int:
     """
@@ -386,27 +408,50 @@ def extract_frames(
     }
 
     ext = "png" if output_format == "png" else "jpg"
-    frame_idx = 0
-
+    
     import concurrent.futures
     # Use a thread pool to write images asynchronously, unblocking the GPU/CPU inference loop
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
     write_futures: list[concurrent.futures.Future] = []
+    
+    # -----------------------------------------------------------------------
+    # Async Video Decoding
+    # -----------------------------------------------------------------------
+    frame_q = queue.Queue(maxsize=4)
+    
+    def frame_reader():
+        frame_idx = 0
+        try:
+            while True:
+                # OPTIMIZATION 1: Bypass decoding for frames we are going to skip
+                if frame_idx % frame_interval != 0:
+                    ret = cap.grab()
+                    if not ret:
+                        break
+                    frame_idx += 1
+                    continue
+
+                # Decode the target frame
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                # Block if the inference loop is slower than the decoding loop
+                frame_q.put((frame_idx, frame))
+                frame_idx += 1
+        finally:
+            frame_q.put(None)
+            
+    reader_thread = threading.Thread(target=frame_reader, daemon=True)
+    reader_thread.start()
 
     try:
         while True:
-            # OPTIMIZATION 1: Bypass decoding for frames we are going to skip
-            if frame_idx % frame_interval != 0:
-                ret = cap.grab()
-                if not ret:
-                    break
-                frame_idx += 1
-                continue
-
-            # Decode the target frame
-            ret, frame = cap.read()
-            if not ret:
+            item = frame_q.get()
+            if item is None:
                 break
+                
+            frame_idx, frame = item
 
             stats["total_sampled"] += 1
 
