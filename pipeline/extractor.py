@@ -390,7 +390,7 @@ class VideoExtractor:
         if self.crop_mode == "body" or self.occlusion_threshold > 0:
             self.body_type, self.body_detector = _init_body_detector(self.detection_confidence)
             
-        if self.occlusion_threshold > 0 and os.environ.get("CLEARSHOT_ENABLE_HAND_OCCLUSION") == "1":
+        if self.occlusion_threshold > 0:
             try:
                 from pipeline.hand_detector import HandDetector
                 self.hand_detector = HandDetector(max_hands=4)
@@ -488,7 +488,7 @@ class VideoExtractor:
             # Base margins (scaled dynamically by sensitivity)
             margin_x = fw * 0.15 * scale_factor
             margin_y_top = fh * 0.15 * scale_factor
-            margin_y_bottom = fh * 0.4 * scale_factor
+            margin_y_bottom = fh * 0.6 * scale_factor
             
             x1 = fx - margin_x
             y1 = fy - margin_y_top
