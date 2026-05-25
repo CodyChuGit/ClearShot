@@ -193,15 +193,15 @@ export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15,
         <label className="setting-label">
           De-duplication
           <span className="setting-value">
-            {settings.dedup_threshold === 0 ? 'Off' : `${Math.round((settings.dedup_threshold / 16) * 100)}%`}
+            {settings.dedup_threshold === 0 ? 'Off' : `${Math.round((settings.dedup_threshold / 24) * 100)}%`}
           </span>
         </label>
         <input
           type="range"
           className="setting-slider"
           min={0} max={100} step={1}
-          value={Math.round((settings.dedup_threshold / 16) * 100)}
-          onChange={(e) => onChange({ dedup_threshold: Math.round((Number(e.target.value) / 100) * 16) })}
+          value={Math.round((settings.dedup_threshold / 24) * 100)}
+          onChange={(e) => onChange({ dedup_threshold: Math.round((Number(e.target.value) / 100) * 24) })}
           disabled={disabled}
         />
         <div className="setting-range-labels">

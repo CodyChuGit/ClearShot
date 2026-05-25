@@ -121,7 +121,7 @@ async def extraction_ws(websocket: WebSocket, job_id: str):
                 square_method=settings.get("square_method", "center_crop"),
                 output_size=settings.get("output_size", 512),
                 output_format=settings.get("output_format", "png"),
-                dedup_threshold=settings.get("dedup_threshold", 8),
+                dedup_threshold=settings.get("dedup_threshold", 12),
                 progress_callback=ex_progress,
             )
 
