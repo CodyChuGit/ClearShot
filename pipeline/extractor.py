@@ -442,9 +442,14 @@ def extract_frames(
                     stats["blurry_discarded"] += 1
                     continue
 
+                # --- Square + resize (Do this before dedup to stabilize aspect ratio) ---
+                squared = make_square(cropped, method=square_method)
+                final = resize_square(squared, size=output_size)
+
                 # --- Dedup ---
                 if HAS_IMAGEHASH and dedup_threshold > 0:
-                    phash = _perceptual_hash(cropped)
+                    # Compute perceptual hash on the stabilized 1:1 image
+                    phash = _perceptual_hash(final)
                     if phash is not None:
                         is_dup = any(
                             (phash - h) < dedup_threshold for h in seen_hashes
@@ -494,9 +499,6 @@ def extract_frames(
                 if HAS_IMAGEHASH and dedup_threshold > 0 and phash is not None:
                     seen_hashes.add(phash)
 
-                # --- Square + resize ---
-                squared = make_square(cropped, method=square_method)
-                final = resize_square(squared, size=output_size)
 
                 # --- Save ---
                 # OPTIMIZATION 2: Async I/O for saving images
