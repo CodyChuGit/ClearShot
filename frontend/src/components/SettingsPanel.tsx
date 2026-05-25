@@ -94,21 +94,22 @@ export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15 
       </div>
 
       <div className="setting-group">
-        <label className="setting-label">Filter Occluded Faces</label>
-        <div className="segmented-control">
-          {([
-            { value: true, label: 'Yes' },
-            { value: false, label: 'No' },
-          ] as const).map(({ value, label }) => (
-            <button
-              key={String(value)}
-              className={`segment ${settings.filter_occluded === value ? 'segment--active' : ''}`}
-              onClick={() => onChange({ filter_occluded: value })}
-              disabled={disabled}
-            >
-              {label}
-            </button>
-          ))}
+        <label className="setting-label">
+          Occlusion Strictness
+          <span className="setting-value">
+            {settings.occlusion_threshold === 0 ? 'Off' : settings.occlusion_threshold}
+          </span>
+        </label>
+        <input
+          type="range"
+          className="setting-slider"
+          min={0} max={100} step={5}
+          value={settings.occlusion_threshold}
+          onChange={(e) => onChange({ occlusion_threshold: Number(e.target.value) })}
+          disabled={disabled}
+        />
+        <div className="setting-range-labels">
+          <span>Off</span><span>Strict</span>
         </div>
       </div>
 

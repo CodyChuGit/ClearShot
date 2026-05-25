@@ -52,7 +52,7 @@ class ExtractionSettings(BaseModel):
     output_size: int = 512
     output_format: str = "png"
     dedup_threshold: int = 8
-    filter_occluded: bool = True
+    occlusion_threshold: int = 50
     download_resolution: str = "max"
 
 

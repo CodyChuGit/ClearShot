@@ -170,12 +170,12 @@ Default settings:
   output_size: 512,
   output_format: 'png',
   dedup_threshold: 8,
-  filter_occluded: true,
+  occlusion_threshold: 50,
   download_resolution: 'max',
 }
 ```
 
-- **Face Occlusion Filter**: Analyzes the 5 SCRFD structural keypoints (eyes, nose, mouth corners) to mathematically determine if the face is heavily occluded (e.g. by hands or masks). This runs at zero performance cost.
+- **Face Occlusion Filter**: Analyzes the 5 SCRFD structural keypoints (eyes, nose, mouth corners) to assign a continuous "Structural Integrity Score" (0-100) based on deviation from biologically ideal proportions. Faces scoring below the `occlusion_threshold` (e.g. deformed by hands or masks) are discarded. Runs at zero performance cost.
 
 ---
 

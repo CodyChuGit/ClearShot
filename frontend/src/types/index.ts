@@ -31,7 +31,7 @@ export interface ExtractionSettings {
   output_size: number;
   output_format: 'png' | 'jpg';
   dedup_threshold: number;
-  filter_occluded: boolean;
+  occlusion_threshold: number;
   download_resolution: 'max' | '1080p' | '720p' | '480p';
 }
 
@@ -93,6 +93,6 @@ export const DEFAULT_SETTINGS: ExtractionSettings = {
   output_size: 512,
   output_format: 'png',
   dedup_threshold: 8,
-  filter_occluded: true,
+  occlusion_threshold: 50,
   download_resolution: 'max',
 };
