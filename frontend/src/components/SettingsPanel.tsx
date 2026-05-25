@@ -1,17 +1,18 @@
-import type { ExtractionSettings } from '../types';
+import type { ExtractionSettings, VideoMeta } from '../types';
 
 interface Props {
   settings: ExtractionSettings;
   onChange: (update: Partial<ExtractionSettings>) => void;
   disabled?: boolean;
   maxTargetFps?: number;
+  videoMeta?: VideoMeta;
 }
 
 const MAX_SHARPNESS = 250;
 const MIN_DETECTION_CONFIDENCE = 0.3;
 const MAX_DETECTION_CONFIDENCE = 0.8;
 
-export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15 }: Props) {
+export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15, videoMeta }: Props) {
   const targetFpsMax = Math.max(0.5, maxTargetFps);
   const targetFpsValue = Math.min(settings.target_fps, targetFpsMax);
   const detectionConfidenceValue = Math.min(
@@ -153,16 +154,22 @@ export function SettingsPanel({ settings, onChange, disabled, maxTargetFps = 15 
       <div className="setting-group">
         <label className="setting-label">Output Size</label>
         <div className="segmented-control segmented-control--quad">
-          {[256, 512, 768, 1024, 1280, 1536, 1920].map((size) => (
-            <button
-              key={size}
-              className={`segment ${settings.output_size === size ? 'segment--active' : ''}`}
-              onClick={() => onChange({ output_size: size })}
-              disabled={disabled}
-            >
-              {size}
-            </button>
-          ))}
+          {[256, 512, 768, 1024, 1280, 1536, 1920].map((size) => {
+            const minVidDim = videoMeta ? Math.min(videoMeta.width, videoMeta.height) : Infinity;
+            // If the video min dimension is 0 (some error), we just allow it. Otherwise restrict.
+            const isTooLarge = (minVidDim > 0) && (size > minVidDim);
+            return (
+              <button
+                key={size}
+                className={`segment ${settings.output_size === size ? 'segment--active' : ''}`}
+                onClick={() => onChange({ output_size: size })}
+                disabled={disabled || isTooLarge}
+                title={isTooLarge ? `Video resolution is too small (${videoMeta?.width}x${videoMeta?.height})` : undefined}
+              >
+                {size}
+              </button>
+            );
+          })}
         </div>
       </div>
 

@@ -82,6 +82,7 @@ function App() {
                   onChange={updateSettings}
                   disabled={isWorking}
                   maxTargetFps={videoMeta?.fps}
+                  videoMeta={videoMeta}
                 />
 
                 <div className="action-bar">
