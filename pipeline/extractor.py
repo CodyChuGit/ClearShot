@@ -514,8 +514,14 @@ class VideoExtractor:
             self.stats["low_resolution_discarded"] += 1
             return body_detections
             
+        # Map the UI 0-100% slider to the actual scale-invariant variance range (0 to ~50)
+        # 0% = 0.0 (allow all)
+        # 50% = 20.0 (sensible default for web video)
+        # 100% = 40.0 (requires studio lighting/macro lens)
+        mapped_blur_thresh = (self.blur_threshold / 100.0) * 40.0
+        
         blur_score = compute_blur_score_roi(frame, face_bbox, face_keypoints)
-        if blur_score < self.blur_threshold:
+        if blur_score < mapped_blur_thresh:
             self.stats["blurry_discarded"] += 1
             return body_detections
             
@@ -534,7 +540,7 @@ class VideoExtractor:
             return body_detections
             
         crop_blur_score = compute_blur_score(cropped)
-        if crop_blur_score < self.blur_threshold * 0.35:
+        if crop_blur_score < mapped_blur_thresh * 0.35:
             self.stats["blurry_discarded"] += 1
             return body_detections
             
