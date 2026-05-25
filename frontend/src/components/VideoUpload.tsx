@@ -167,6 +167,7 @@ export function VideoUpload({ phase, jobId, videoMeta, onUpload, onUrlImport, on
                   src={getVideoUrl(jobId)} 
                   poster={getVideoPreviewUrl(jobId)}
                   controls 
+                  muted
                   className="preview-video"
                   preload="metadata"
                 />

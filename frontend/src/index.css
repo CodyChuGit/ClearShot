@@ -842,3 +842,9 @@ button {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Hide volume controls on the preview video */
+.preview-video::-webkit-media-controls-volume-slider,
+.preview-video::-webkit-media-controls-mute-button {
+  display: none !important;
+}
