@@ -514,7 +514,7 @@ class VideoExtractor:
             self.stats["low_resolution_discarded"] += 1
             return body_detections
             
-        blur_score = compute_blur_score_roi(frame, face_bbox, face_keypoints)
+        blur_score = compute_blur_score_roi(frame, face_bbox)
         if blur_score < self.blur_threshold:
             self.stats["blurry_discarded"] += 1
             return body_detections
