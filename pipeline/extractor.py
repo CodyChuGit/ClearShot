@@ -448,6 +448,9 @@ class VideoExtractor:
         is_occluded = False
         fx, fy, fw, fh = face_bbox
         
+        # Scale factor: 50 -> 1.0, 100 -> 2.0, 10 -> 0.2
+        scale_factor = self.occlusion_threshold / 50.0
+        
         # 1. Body Pose Check (Shoulders, Elbows, Wrists)
         if self.body_detector is not None:
             if body_detections is None:
@@ -455,12 +458,21 @@ class VideoExtractor:
                 
             occlusion_kps = [5, 6, 7, 8, 9, 10]
             
+            # Body margin: 0 at threshold 50. Expands at higher thresholds, contracts at lower.
+            bx_margin = fw * 0.15 * (scale_factor - 1.0)
+            by_margin = fh * 0.15 * (scale_factor - 1.0)
+            
+            bx1 = fx - bx_margin
+            by1 = fy - by_margin
+            bx2 = fx + fw + bx_margin
+            by2 = fy + fh + by_margin
+            
             for body in body_detections:
                 for kp_idx in occlusion_kps:
                     if kp_idx < len(body.keypoints):
                         kp = body.keypoints[kp_idx]
                         if kp.confidence > 0.4:
-                            if fx <= kp.x <= fx + fw and fy <= kp.y <= fy + fh:
+                            if bx1 <= kp.x <= bx2 and by1 <= kp.y <= by2:
                                 is_occluded = True
                                 break
                 if is_occluded: break
@@ -473,10 +485,10 @@ class VideoExtractor:
                 
             fh_img, fw_img = frame.shape[:2]
             
-            # Add margin to catch hands hovering just outside the bbox (e.g. holding a microphone)
-            margin_x = fw * 0.15
-            margin_y_top = fh * 0.15
-            margin_y_bottom = fh * 0.4  # Large bottom margin for hands holding mics below the chin
+            # Base margins (scaled dynamically by sensitivity)
+            margin_x = fw * 0.15 * scale_factor
+            margin_y_top = fh * 0.15 * scale_factor
+            margin_y_bottom = fh * 0.4 * scale_factor
             
             x1 = fx - margin_x
             y1 = fy - margin_y_top
