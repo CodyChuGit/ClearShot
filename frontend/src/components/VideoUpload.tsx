@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Upload, Film, X, Link as LinkIcon, ArrowRight } from 'lucide-react';
 import type { VideoMeta } from '../types';
 import type { ExtractionPhase } from '../hooks/useExtraction';
-import { getVideoPreviewUrl } from '../services/api';
+import { getVideoUrl, getVideoPreviewUrl } from '../services/api';
 
 interface Props {
   phase: ExtractionPhase;
@@ -163,10 +163,12 @@ export function VideoUpload({ phase, jobId, videoMeta, onUpload, onUrlImport, on
               )}
               
               {showVideo && jobId && (
-                <img 
-                  src={getVideoPreviewUrl(jobId)} 
-                  alt="Random frame preview" 
-                  className="preview-thumbnail"
+                <video 
+                  src={getVideoUrl(jobId)} 
+                  poster={getVideoPreviewUrl(jobId)}
+                  controls 
+                  className="preview-video"
+                  preload="metadata"
                 />
               )}
             </div>
