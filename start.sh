@@ -13,7 +13,7 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-echo "-> Starting FastAPI backend on http://localhost:8000"
+echo "-> Starting FastAPI backend on http://localhost:8001"
 python3 server.py &
 BACKEND_PID=$!
 
@@ -26,7 +26,7 @@ cd ..
 echo ""
 echo "✅ Both servers are running!"
 echo "   Frontend UI: http://localhost:5173"
-echo "   Backend API: http://localhost:8000"
+echo "   Backend API: http://localhost:8001"
 echo "Press CTRL+C to stop both servers."
 echo ""
 

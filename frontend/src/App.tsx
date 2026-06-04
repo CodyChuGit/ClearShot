@@ -218,19 +218,26 @@ function App() {
             )}
 
             <Gallery results={results} />
-
-            {!showResults && !showProgress && !showError && (
-              <div className="empty-state">
-                <div className="empty-state__icon">🎯</div>
-                <h2 className="empty-state__title">Ready to extract</h2>
-                <p className="empty-state__text">
-                  Upload a video and configure your settings to begin extracting sharp, face-focused training data.
-                </p>
-              </div>
-            )}
           </section>
         </div>
       </main>
+
+      <footer className="footer">
+        <div className="footer__content">
+          <h2 className="footer__title">
+            {showError ? 'Error occurred' :
+             showProgress ? (phase === 'downloading' ? 'Downloading' : 'Extracting') :
+             showResults ? 'Extraction complete' :
+             'Ready to extract'}
+          </h2>
+          <p className="footer__text">
+            {showError ? error :
+             showProgress ? (stage || 'Processing video...') :
+             showResults ? 'Review and download your extracted training data.' :
+             'Upload a video and configure your settings to begin extracting sharp, face-focused training data.'}
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

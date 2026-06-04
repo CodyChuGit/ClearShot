@@ -802,29 +802,48 @@ button {
 }
 
 /* Utils */
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+.footer {
+  padding: var(--space-md) var(--space-xl);
   text-align: center;
-  color: var(--text-muted);
+  margin-top: auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
 }
 
-.empty-state__icon {
-  font-size: 3rem;
-  margin-bottom: var(--space-md);
+.footer:hover {
+  opacity: 1;
 }
 
-.empty-state__title {
+.footer__content {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.footer__title {
   color: var(--text-primary);
-  margin-bottom: var(--space-xs);
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.empty-state__text {
-  max-width: 320px;
-  font-size: 0.85rem;
+.footer__title::after {
+  content: "—";
+  margin-left: var(--space-sm);
+  color: var(--border-subtle);
+}
+
+.footer__text {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  margin: 0;
 }
 
 .error-banner {

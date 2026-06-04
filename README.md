@@ -17,6 +17,14 @@ ClearShot is a full-stack application with a React frontend and a FastAPI backen
 - **De-duplication** — Perceptual hashing skips near-identical frames.
 - **Batch Download** — Export all extracted frames as a ZIP archive.
 
+## Screenshots
+
+<div align="center">
+  <img src="./assets/upload.png" alt="Upload Screen" width="800"/>
+  <img src="./assets/results.png" alt="Extraction Results" width="800"/>
+  <img src="./assets/settings.png" alt="Configuration Settings" width="300"/>
+</div>
+
 ## Requirements
 
 - **Node.js 18+** (for frontend)
@@ -113,6 +121,22 @@ python3 server.py
 ## Developer Guide & Architecture
 
 For a complete breakdown of the application architecture, GPU optimization details, API endpoints, and instructions on how to rebuild this app from scratch, please read **[ARCHITECTURE.md](./ARCHITECTURE.md)**.
+
+## Acknowledgments & Credits
+
+ClearShot is built on the shoulders of giants. We would like to credit the authors and maintainers of the following open-source projects, models, and repositories that make this application possible:
+
+### AI & Machine Learning Models
+- **[SCRFD (InsightFace)](https://github.com/deepinsight/insightface)** — The blazing-fast face detection model. Authored by Jia Guo, Jiankang Deng, and the InsightFace team.
+- **[YOLOv8-pose ONNX Port](https://huggingface.co/Xenova/yolov8n-pose)** — ONNX export of YOLOv8-pose used in this project. Ported by Joshua Lochner (Xenova).
+
+### Utility Libraries
+- **[pytubefix](https://github.com/JuanBindez/pytubefix)** — Used for YouTube video probing and downloading. Authored by Juan Bindez.
+- **[ImageHash](https://github.com/JohannesBuchner/imagehash)** — Used for perceptual hashing and deduplication. Authored by Johannes Buchner.
+
+## License
+
+ClearShot is licensed under the **MIT License**. See [LICENSE.md](./LICENSE.md) for the full license text.
 
 ## Settings Guide
 
