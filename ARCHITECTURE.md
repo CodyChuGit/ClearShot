@@ -4,6 +4,8 @@ ClearShot is a desktop-friendly full-stack web app for extracting sharp face/bod
 
 This document is both the current architecture guide and a prompt-quality specification that can be used to recreate the app.
 
+> For detailed UI/UX principles, CSS architecture, and visual aesthetics, please refer to **[DESIGN.md](./DESIGN.md)**.
+
 ---
 
 ## Product Goal
@@ -28,10 +30,11 @@ The app is intended for AI/ML training data preparation. It should feel like a m
 
 - React + TypeScript
 - Vite
-- Vanilla CSS in `frontend/src/index.css`
+- Vanilla CSS in `frontend/src/index.css` (Supporting automatic system Light/Dark mode and manual 'M' key toggle)
 - `motion/react` for small entrance animations
 - `lucide-react` for action icons
 - Native HTML5 video preview
+- Minimalist floating status footer replacing traditional heavy target UI elements
 
 ### Backend
 
