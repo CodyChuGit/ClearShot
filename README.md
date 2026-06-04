@@ -133,12 +133,14 @@ For a complete breakdown of the application architecture, GPU optimization detai
 
 ClearShot is built on the shoulders of giants. We would like to credit the authors and maintainers of the following open-source projects, models, and repositories that make this application possible:
 
+### YouTube Extractor Repositories
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** & **[youtube-dl](https://github.com/ytdl-org/youtube-dl)** — The legendary YouTube downloader repositories and source of inspiration for video extraction tools.
+
 ### AI & Machine Learning Models
 - **[SCRFD (InsightFace)](https://github.com/deepinsight/insightface)** — The blazing-fast face detection model. Authored by Jia Guo, Jiankang Deng, and the InsightFace team.
 - **[YOLOv8-pose ONNX Port](https://huggingface.co/Xenova/yolov8n-pose)** — ONNX export of YOLOv8-pose used in this project. Ported by Joshua Lochner (Xenova).
 
 ### Utility Libraries
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** & **[youtube-dl](https://github.com/ytdl-org/youtube-dl)** — The legendary YouTube downloader repositories and source of inspiration for video extraction tools.
 - **[pytubefix](https://github.com/JuanBindez/pytubefix)** — Used for YouTube video probing and downloading. Authored by Juan Bindez.
 - **[ImageHash](https://github.com/JohannesBuchner/imagehash)** — Used for perceptual hashing and deduplication. Authored by Johannes Buchner.
 
