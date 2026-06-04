@@ -21,8 +21,15 @@ ClearShot is a full-stack application with a React frontend and a FastAPI backen
 
 <div align="center">
   <img src="./assets/upload.png" alt="Upload Screen" width="800"/>
+  <p><i>Easily upload a local video or drop a YouTube link to begin processing.</i></p>
+  <br/>
+
   <img src="./assets/results.png" alt="Extraction Results" width="800"/>
+  <p><i>Review, filter, and extract AI-ready training frames in the gallery view.</i></p>
+  <br/>
+
   <img src="./assets/settings.png" alt="Configuration Settings" width="300"/>
+  <p><i>Fine-tune your extraction with powerful options like blur rejection, confidence thresholding, and padding.</i></p>
 </div>
 
 ## Requirements
