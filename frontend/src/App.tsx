@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Play, Download, RotateCcw, XCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Header } from './components/Header';
@@ -12,6 +12,25 @@ import { getDownloadUrl, getVideoDownloadUrl } from './services/api';
 import './index.css';
 
 function App() {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'm' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        const isCurrentlyLight = document.documentElement.classList.contains('theme-light') || 
+          (!document.documentElement.classList.contains('theme-dark') && window.matchMedia('(prefers-color-scheme: light)').matches);
+        
+        if (isCurrentlyLight) {
+          document.documentElement.classList.remove('theme-light');
+          document.documentElement.classList.add('theme-dark');
+        } else {
+          document.documentElement.classList.remove('theme-dark');
+          document.documentElement.classList.add('theme-light');
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const {
     phase,
     jobId,
