@@ -134,6 +134,9 @@ ClearShot is built on the shoulders of giants. We would like to credit the autho
 - **[pytubefix](https://github.com/JuanBindez/pytubefix)** — Used for YouTube video probing and downloading. Authored by Juan Bindez.
 - **[ImageHash](https://github.com/JohannesBuchner/imagehash)** — Used for perceptual hashing and deduplication. Authored by Johannes Buchner.
 
+### Design
+- **UI/UX** — Designed with AI UI/UX Pro Max skills by the user.
+
 ## License
 
 ClearShot is licensed under the **MIT License**. See [LICENSE.md](./LICENSE.md) for the full license text.
