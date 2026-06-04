@@ -40,6 +40,35 @@
   --radius-lg: 1rem;
 }
 
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-primary: #f9fafb;
+    --bg-secondary: #ffffff;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f3f4f6;
+    --border-subtle: #e5e7eb;
+    --border-accent: #c7d2fe;
+    --text-primary: #111827;
+    --text-secondary: #4b5563;
+    --text-muted: #9ca3af;
+    --accent: #4f46e5;
+    --accent-glow: rgba(79, 70, 229, 0.15);
+  }
+  
+  .format-pill {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  
+  .video-info__reset:hover,
+  .btn--secondary:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  
+  .settings-select:hover:not(:disabled) {
+    border-color: rgba(0, 0, 0, 0.2);
+  }
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
