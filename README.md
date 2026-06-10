@@ -25,7 +25,7 @@ ClearShot is a full-stack application with a React frontend and a FastAPI backen
   <br/>
 
   <img src="./assets/results.png" alt="Extraction Results" width="800"/>
-  <p><i>Review, filter, and extract AI-ready training frames in the gallery view. (Featuring K-pop idol Arin from <a href="https://www.youtube.com/watch?v=GZEInkKcVCk">this video</a>)</i></p>
+  <p><i>Review, filter, and extract AI-ready training frames in the gallery view. (Featuring Will Smith from <a href="[https://www.youtube.com/watch?v=xnY-j43ih_0]">this video</a>)</i></p>
   <br/>
 
   <img src="./assets/settings.png" alt="Configuration Settings" width="300"/>
